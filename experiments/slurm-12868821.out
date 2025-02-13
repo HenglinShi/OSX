@@ -1,0 +1,33 @@
+PYTHONPATH has been set to
+/software/sse/manual/PyTorch/2.3.0/python-3.10/envs/pytorch_2.3.0/lib/python3.10/site-packages 
+Please do not modify PYTHONPATH while using this module. 
+ 
+/home/x_hensh/.local/lib/python3.10/site-packages/mmcv/__init__.py:20: UserWarning: On January 1, 2023, MMCV will release v2.0.0, in which it will remove components related to the training process and add a data transformation module. In addition, it will rename the package names mmcv to mmcv-lite and mmcv-full to mmcv. See https://github.com/open-mmlab/mmcv/blob/master/docs/en/compatibility.md for more details.
+  warnings.warn(
+/home/x_hensh/.local/lib/python3.10/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+[92m02-03 12:52:31[0m Creating dataset...
+### Argument parse and create log ###
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+>>> Using GPU: 0
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+Traceback (most recent call last):
+  File "/proj/berzelius-2024-331/users/x_hensh/git/OSX/experiments/../main/train.py", line 119, in <module>
+    main()
+  File "/proj/berzelius-2024-331/users/x_hensh/git/OSX/experiments/../main/train.py", line 69, in main
+    trainer._make_batch_generator()
+  File "/proj/berzelius-2024-331/users/x_hensh/git/OSX/main/../common/base.py", line 131, in _make_batch_generator
+    self.batch_generator = DataLoader(dataset=trainset_loader, batch_size=cfg.num_gpus * cfg.train_batch_size,
+  File "/home/x_hensh/.local/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 344, in __init__
+    sampler = RandomSampler(dataset, generator=generator)  # type: ignore[arg-type]
+  File "/home/x_hensh/.local/lib/python3.10/site-packages/torch/utils/data/sampler.py", line 107, in __init__
+    raise ValueError("num_samples should be a positive integer "
+ValueError: num_samples should be a positive integer value, but got num_samples=0

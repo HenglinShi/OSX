@@ -3,7 +3,10 @@ from config import cfg
 from tqdm import tqdm
 import torch
 import torch.backends.cudnn as cudnn
+import sys
+import pdb
 
+sys.path.insert(0, "../main/transformer_utils")
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', type=str, dest='gpu_ids')
@@ -14,6 +17,7 @@ def parse_args():
     parser.add_argument('--testset', type=str, default='EHF')
     parser.add_argument('--agora_benchmark', action='store_true')
     parser.add_argument('--pretrained_model_path', type=str, default='../pretrained_models/osx_l_wo_face_decoder.pth.tar')
+    parser.add_argument('--model_type', type=str, default='smil_h')
     args = parser.parse_args()
 
     if not args.gpu_ids:
@@ -26,6 +30,9 @@ def parse_args():
         args.gpu_ids = ','.join(map(lambda x: str(x), list(range(*gpus))))
 
     return args
+
+
+
 
 def main():
     print('### Argument parse and create log ###')
@@ -40,16 +47,33 @@ def main():
                             testset=args.testset,
                             )
     cudnn.benchmark = True
+
+
+    model_type = args.model_type
+
+    if model_type == 'smpl_h':
+        from common.utils.human_models import smpl_h as smpl
+    elif model_type == 'smpl_x':
+        from common.utils.human_models import smpl_x as smpl
+    elif model_type == 'smil_h':
+        from common.utils.human_models import smil_h as smpl
+    else:
+        raise NotImplementedError()
+
+
+
+
     from common.base import Tester
     tester = Tester()
     tester._make_batch_generator()
-    tester._make_model()
-
+    tester._make_model(smpl)
+    #pdb.set_trace()
     eval_result = {}
     cur_sample_idx = 0
     for itr, (inputs, targets, meta_info) in enumerate(tqdm(tester.batch_generator)):
 
         # forward
+        pdb.set_trace()
         with torch.no_grad():
             out = tester.model(inputs, targets, meta_info, 'test')
 

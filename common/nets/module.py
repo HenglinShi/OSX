@@ -30,7 +30,7 @@ class PositionNet(nn.Module):
     def forward(self, img_feat):
         assert (img_feat.shape[2], img_feat.shape[3]) == (self.hm_shape[1], self.hm_shape[2])
         joint_hm = self.conv(img_feat).view(-1, self.joint_num, self.hm_shape[0], self.hm_shape[1], self.hm_shape[2])
-        joint_coord = soft_argmax_3d(joint_hm)
+        joint_coord = soft_argmax_3d(joint_hm) # n x 25 x ? x ? x ? ==>> n x 25 x 3
         joint_hm = F.softmax(joint_hm.view(-1, self.joint_num, self.hm_shape[0] * self.hm_shape[1] * self.hm_shape[2]),
                              2)
         joint_hm = joint_hm.view(-1, self.joint_num, self.hm_shape[0], self.hm_shape[1], self.hm_shape[2])

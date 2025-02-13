@@ -122,4 +122,4 @@ def rot_mat_to_euler(rot_mats):
 
     sy = torch.sqrt(rot_mats[:, 0, 0] * rot_mats[:, 0, 0] +
                     rot_mats[:, 1, 0] * rot_mats[:, 1, 0])
-    return torch.atan2(-rot_mats[:, 2, 0], sy)
+    return torch.atan2(-rot_mats[:, 2, 0], sy)  

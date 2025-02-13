@@ -1,0 +1,15 @@
+### Argument parse and create log ###
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+WARNING: You are using a SMPL+H model, with only 10 shape coefficients.
+>>> Using GPU: 0
+loading annotations into memory...
+Done (t=0.21s)
+creating index...
+index created!
+Initialize backbone from ../pretrained_models/osx_vit_l.pth
+### Set some hyper parameters ###
+### Start training ###

@@ -1,0 +1,7 @@
+PYTHONPATH has been set to
+/software/sse/manual/PyTorch/2.3.0/python-3.10/envs/pytorch_2.3.0/lib/python3.10/site-packages 
+Please do not modify PYTHONPATH while using this module. 
+ 
+python: can't open file '/proj/berzelius-2024-331/users/x_hensh/git/OSX/experiments/main/train.py': [Errno 2] No such file or directory
+/var/lib/slurm/slurmd/job12868777/slurm_script: line 17: --ima_benchmark: command not found
+/var/lib/slurm/slurmd/job12868777/slurm_script: line 18: --train_batch_size: command not found

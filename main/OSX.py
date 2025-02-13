@@ -2,19 +2,25 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from common.nets.module import PositionNet, HandRotationNet, FaceRegressor, BoxNet, BoxSizeNet, HandRoI, FaceRoI, BodyRotationNet
-from common.nets.loss import CoordLoss, ParamLoss, CELoss
-from common.utils.human_models import smpl_x
+from common.nets.loss import CoordLoss, ParamLoss, CELoss, SilhouetteLoss
+#from common.utils.human_models import smpl_h, smpl_x
 from common.utils.transforms import rot6d_to_axis_angle, restore_bbox
 from config import cfg
+from common.utils.vis import render_mesh, save_obj, vis_keypoints
+import cv2
 import math
 import copy
 from mmpose.models import build_posenet
 from mmcv import Config
 import os
+import pdb
+import numpy as np
+from render_p3d import base_renderer
+import matplotlib.pyplot as plt
 
 class Model(nn.Module):
     def __init__(self, encoder, body_position_net, body_rotation_net, box_net, hand_position_net, hand_roi_net, hand_decoder,
-                 hand_rotation_net, face_position_net, face_roi_net, face_decoder, face_regressor):
+                 hand_rotation_net, face_position_net, face_roi_net, face_decoder, face_regressor, smpl):
         super(Model, self).__init__()
         # body
         self.encoder = encoder
@@ -34,34 +40,80 @@ class Model(nn.Module):
         self.face_decoder = face_decoder
         self.face_regressor = face_regressor
 
-        self.smplx_layer = copy.deepcopy(smpl_x.layer['neutral']).cuda()
+        self.smpl = smpl
+        self.smpl_layer = copy.deepcopy(self.smpl.layer['neutral']).cuda()
 
         self.coord_loss = CoordLoss()
         self.param_loss = ParamLoss()
         self.ce_loss = CELoss()
+        self.mask_loss = SilhouetteLoss()
 
-        self.body_num_joints = len(smpl_x.pos_joint_part['body'])
-        self.hand_num_joints = len(smpl_x.pos_joint_part['rhand'])
+        self.body_num_joints = len(smpl.pos_joint_part['body'])
+        self.hand_num_joints = len(smpl.pos_joint_part['rhand'])
 
         self.trainable_modules = [self.encoder, self.body_position_net, self.body_regressor,
                                   self.box_net, self.hand_position_net, self.hand_roi_net, self.hand_regressor,
                                   self.face_regressor, self.face_roi_net, self.face_position_net]
         self.special_trainable_modules = [self.hand_decoder, self.face_decoder]
 
+
+        # Definining the render
+
+        focal = [
+            cfg.focal[0] / cfg.input_body_shape[1] * cfg.input_body_shape[1], 
+            cfg.focal[1] / cfg.input_body_shape[0] * cfg.input_body_shape[0]
+        ]
+
+        princpt = [
+            cfg.princpt[0] / cfg.input_body_shape[1] * cfg.input_body_shape[1], # / cfg.input_body_shape[1], 
+            cfg.princpt[1] / cfg.input_body_shape[0] * cfg.input_body_shape[0]# / cfg.input_body_shape[0]
+        ]
+
+
+
+        #pdb.set_trace()
+
+        self.camera_screen = base_renderer(
+            size=cfg.input_body_shape,
+            focal=focal,
+            principal_point=princpt,
+            device='cuda',
+            colorRender=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     def get_camera_trans(self, cam_param):
         # camera translation
-        t_xy = cam_param[:, :2]
+        if cfg.model_type == 'smil_h':
+            t_xy = cam_param[:, :2] + torch.Tensor([0.1, -1]).cuda()
+            #print (t_xy)
+        else: 
+            t_xy = cam_param[:, :2]
         gamma = torch.sigmoid(cam_param[:, 2])  # apply sigmoid to make it positive
         k_value = torch.FloatTensor([math.sqrt(cfg.focal[0] * cfg.focal[1] * cfg.camera_3d_size * cfg.camera_3d_size / (
                 cfg.input_body_shape[0] * cfg.input_body_shape[1]))]).cuda().view(-1)
         t_z = k_value * gamma
         cam_trans = torch.cat((t_xy, t_z[:, None]), 1)
-        return cam_trans
+        if cfg.model_type == 'smil_h':
+            return cam_trans / 3
+        else:
+            return cam_trans
 
     def get_coord(self, root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode):
         batch_size = root_pose.shape[0]
         zero_pose = torch.zeros((1, 3)).float().cuda().repeat(batch_size, 1)  # eye poses
-        output = self.smplx_layer(betas=shape, body_pose=body_pose, global_orient=root_pose, right_hand_pose=rhand_pose,
+        output = self.smpl_layer(betas=shape, body_pose=body_pose, global_orient=root_pose, right_hand_pose=rhand_pose,
                                   left_hand_pose=lhand_pose, jaw_pose=jaw_pose, leye_pose=zero_pose,
                                   reye_pose=zero_pose, expression=expr)
         # camera-centered 3D coordinate
@@ -69,9 +121,8 @@ class Model(nn.Module):
         if mode == 'test' and cfg.testset == 'AGORA':  # use 144 joints for AGORA evaluation
             joint_cam = output.joints
         else:
-            joint_cam = output.joints[:, smpl_x.joint_idx, :]
+            joint_cam = output.joints[:, self.smpl.joint_idx, :] # get the joint regressed by the mesh
 
-        # project 3D coordinates to 2D space
         if mode == 'train' and len(cfg.trainset_3d) == 1 and cfg.trainset_3d[0] == 'AGORA' and len(
                 cfg.trainset_2d) == 0:  # prevent gradients from backpropagating to SMPLX parameter regression module
             x = (joint_cam[:, :, 0].detach() + cam_trans[:, None, 0]) / (
@@ -88,32 +139,78 @@ class Model(nn.Module):
         joint_proj = torch.stack((x, y), 2)
 
         # root-relative 3D coordinates
-        root_cam = joint_cam[:, smpl_x.root_joint_idx, None, :]
+        root_cam = joint_cam[:, self.smpl.root_joint_idx, None, :]
         joint_cam = joint_cam - root_cam
         mesh_cam = mesh_cam + cam_trans[:, None, :]  # for rendering
 
         # left hand root (left wrist)-relative 3D coordinates
-        lhand_idx = smpl_x.joint_part['lhand']
+        lhand_idx = self.smpl.joint_part['lhand']
         lhand_cam = joint_cam[:, lhand_idx, :]
-        lwrist_cam = joint_cam[:, smpl_x.lwrist_idx, None, :]
+        lwrist_cam = joint_cam[:, self.smpl.lwrist_idx, None, :]
         lhand_cam = lhand_cam - lwrist_cam
         joint_cam = torch.cat((joint_cam[:, :lhand_idx[0], :], lhand_cam, joint_cam[:, lhand_idx[-1] + 1:, :]), 1)
 
         # right hand root (right wrist)-relative 3D coordinates
-        rhand_idx = smpl_x.joint_part['rhand']
+        rhand_idx = self.smpl.joint_part['rhand']
         rhand_cam = joint_cam[:, rhand_idx, :]
-        rwrist_cam = joint_cam[:, smpl_x.rwrist_idx, None, :]
+        rwrist_cam = joint_cam[:, self.smpl.rwrist_idx, None, :]
         rhand_cam = rhand_cam - rwrist_cam
         joint_cam = torch.cat((joint_cam[:, :rhand_idx[0], :], rhand_cam, joint_cam[:, rhand_idx[-1] + 1:, :]), 1)
 
         # face root (neck)-relative 3D coordinates
-        face_idx = smpl_x.joint_part['face']
-        face_cam = joint_cam[:, face_idx, :]
-        neck_cam = joint_cam[:, smpl_x.neck_idx, None, :]
-        face_cam = face_cam - neck_cam
-        joint_cam = torch.cat((joint_cam[:, :face_idx[0], :], face_cam, joint_cam[:, face_idx[-1] + 1:, :]), 1)
+        face_idx = self.smpl.joint_part['face']
+        if joint_cam.shape[1] >70:
+            face_cam = joint_cam[:, face_idx, :]
+            neck_cam = joint_cam[:, self.smpl.neck_idx, None, :]
+            face_cam = face_cam - neck_cam
+            joint_cam = torch.cat((joint_cam[:, :face_idx[0], :], face_cam, joint_cam[:, face_idx[-1] + 1:, :]), 1)
 
         return joint_proj, joint_cam, mesh_cam
+
+    def get_coord_hshi(self, root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode):
+        batch_size = root_pose.shape[0]
+        zero_pose = torch.zeros((1, 3)).float().cuda().repeat(batch_size, 1)  # eye poses
+        output = self.smpl_layer(betas=shape, body_pose=body_pose, global_orient=root_pose, right_hand_pose=rhand_pose,
+                                  left_hand_pose=lhand_pose, jaw_pose=jaw_pose, leye_pose=zero_pose,
+                                  reye_pose=zero_pose, expression=expr)
+        # camera-centered 3D coordinate
+        mesh_cam = output.vertices
+        if mode == 'test' and cfg.testset == 'AGORA':  # use 144 joints for AGORA evaluation
+            joint_cam = output.joints
+        else:
+            joint_cam = output.joints[:, self.smpl.joint_idx, :]
+
+        joint_proj = joint_cam + cam_trans[:, None, :]
+
+        # root-relative 3D coordinates
+        joint_cam_tr = joint_cam + cam_trans[:, None, :]
+        root_cam = joint_cam[:, self.smpl.root_joint_idx, None, :]  #??????? why taking this root cam away?
+        joint_cam = joint_cam - root_cam
+        mesh_cam = mesh_cam + cam_trans[:, None, :]  # for rendering MOVING THE MESH ACCORDING TO THE TRANSLATION
+
+        # left hand root (left wrist)-relative 3D coordinates
+        lhand_idx = self.smpl.joint_part['lhand']
+        lhand_cam = joint_cam[:, lhand_idx, :]
+        lwrist_cam = joint_cam[:, self.smpl.lwrist_idx, None, :]
+        lhand_cam = lhand_cam - lwrist_cam
+        joint_cam = torch.cat((joint_cam[:, :lhand_idx[0], :], lhand_cam, joint_cam[:, lhand_idx[-1] + 1:, :]), 1)
+
+        # right hand root (right wrist)-relative 3D coordinates
+        rhand_idx = self.smpl.joint_part['rhand']
+        rhand_cam = joint_cam[:, rhand_idx, :]
+        rwrist_cam = joint_cam[:, self.smpl.rwrist_idx, None, :]
+        rhand_cam = rhand_cam - rwrist_cam
+        joint_cam = torch.cat((joint_cam[:, :rhand_idx[0], :], rhand_cam, joint_cam[:, rhand_idx[-1] + 1:, :]), 1)
+
+        # face root (neck)-relative 3D coordinates
+        face_idx = self.smpl.joint_part['face']
+        if joint_cam.shape[1] >70:
+            face_cam = joint_cam[:, face_idx, :]
+            neck_cam = joint_cam[:, self.smpl.neck_idx, None, :]
+            face_cam = face_cam - neck_cam
+            joint_cam = torch.cat((joint_cam[:, :face_idx[0], :], face_cam, joint_cam[:, face_idx[-1] + 1:, :]), 1)
+
+        return joint_proj, joint_cam, mesh_cam, output, joint_cam_tr
 
     def generate_mesh_gt(self, targets, mode):
         if 'smplx_mesh_cam' in targets:
@@ -189,8 +286,9 @@ class Model(nn.Module):
         return lhand_bbox_center, rhand_bbox_center, face_bbox_center
 
     def forward(self, inputs, targets, meta_info, mode):
-
+        
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape)
+        batch_size = body_img.shape[0]
 
         # 1. Encoder
         img_feat, task_tokens = self.encoder(body_img)  # task_token:[bs, N, c]
@@ -233,7 +331,7 @@ class Model(nn.Module):
         rhand_joint_img = hand_joint_img[batch_size:, :, :]
         # restore flipped left hand joint rotations
         batch_size = hand_pose.shape[0] // 2
-        lhand_pose = hand_pose[:batch_size, :].reshape(-1, len(smpl_x.orig_joint_part['lhand']), 3)
+        lhand_pose = hand_pose[:batch_size, :].reshape(-1, len(self.smpl.orig_joint_part['lhand']), 3)
         lhand_pose = torch.cat((lhand_pose[:, :, 0:1], -lhand_pose[:, :, 1:3]), 2).view(batch_size, -1)
         rhand_pose = hand_pose[batch_size:, :]
 
@@ -246,119 +344,128 @@ class Model(nn.Module):
         jaw_pose = rot6d_to_axis_angle(jaw_pose)
 
         # final output
-        joint_proj, joint_cam, mesh_cam = self.get_coord(root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode)
+        joint_proj, joint_cam, mesh_cam, regoutput, joint_cam_tr = self.get_coord_hshi(root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode)
+        #pdb.set_trace()
+        #joint_proj, joint_cam, mesh_cam, regoutput = self.get_coord_hshi(root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode)
         pose = torch.cat((root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose), 1)
         joint_img = torch.cat((body_joint_img, lhand_joint_img, rhand_joint_img), 1)
 
+        #pdb.set_trace()
+        #print (mesh_cam.shape)
+        #print (torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1).shape)
+        #print (joint_proj.shape)
+        #pdb.set_trace()
+        silhouette, joint_proj = self.camera_screen(mesh_cam, torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1), joint_proj)
+        
+
+
+            
         if mode == 'test' and 'smplx_pose' in targets:
             mesh_pseudo_gt = self.generate_mesh_gt(targets, mode)
 
         if mode == 'train':
+
+            joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
+            
+            if cfg.debug:
+                from common.utils.vis import vis_keypoints, vis_mesh, save_obj, render_mesh, vis_keypoints_error
+
+                vis_ind = -1
+                #pdb.set_trace()
+                #cv2.imwrite(f'debug_org_pkt.jpg', np.ascontiguousarray(inputs['kpt_image_aug'][vis_ind, ...].detach().cpu().numpy()[:, :, ::-1], dtype=np.uint8))
+                
+                cv2.imwrite(f'debug_org_kpt_aug.jpg', 
+                            np.ascontiguousarray(inputs['kpt_image_aug'][vis_ind, ...].detach().cpu().numpy()[:, :, ::-1], dtype=np.uint8))
+                
+                cv2.imwrite(f'debug_mask_gt.jpg', 
+                            np.ascontiguousarray(targets['mask_gt'][vis_ind, ...].permute([1,2,0]).detach().cpu().numpy()[:, :, ::-1] * 255, dtype=np.uint8))
+
+                kpt_gt = targets['joint_img'][vis_ind, ...].cpu().numpy().copy()
+
+
+                kpt_pred_debug = joint_proj[vis_ind,...].detach().cpu().numpy()
+
+                # 
+                img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
+                img_input = vis_keypoints(img_input, kpt_gt)
+                cv2.imwrite(f'debug_kpt_gt.jpg', img_input[:, :, ::-1])
+
+
+                # See kpt render result
+
+                img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
+                img_input = vis_keypoints(img_input, kpt_pred_debug)
+                cv2.imwrite(f'debug_kpt_pred.jpg', img_input[:, :, ::-1])
+                    
+
+                    #
+                img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
+                img_input = vis_keypoints_error(img_input, kpt_pred_debug, kpt_gt)
+                cv2.imwrite(f'debug_kpt_error.jpg', img_input[:, :, ::-1])
+
+                    
+                # See mesh render result and predicted kpts
+                rendered = torch.multiply(body_img[vis_ind,...].permute([1,2,0]), 1 - silhouette[vis_ind, :, :, 3].unsqueeze(-1)) + silhouette[vis_ind, :, :, 3].unsqueeze(-1)
+                img_input = vis_keypoints(np.ascontiguousarray(rendered.detach().cpu().numpy() * 255, dtype=np.uint8), kpt_gt)
+                cv2.imwrite(f'debug_kpt_gt_rendered.jpg', img_input[:, :, ::-1])
+
+
+                rendered = torch.multiply(body_img[vis_ind,...].permute([1,2,0]), 1 - silhouette[vis_ind, :, :, 3].unsqueeze(-1)) + silhouette[vis_ind, :, :, 3].unsqueeze(-1)
+                img_input = vis_keypoints(np.ascontiguousarray(rendered.detach().cpu().numpy() * 255, dtype=np.uint8), kpt_pred_debug)
+                cv2.imwrite(f'debug_kpt_pred_rendered.jpg', img_input[:, :, ::-1])
+
+
+            
+
+
+            #img_input = render_mesh(img_input, mesh_cam[-1, ...].cpu().detach().numpy(), self.smpl.face, {'focal': focal, 'princpt': princpt})
+            img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
+            img_input = render_mesh(img_input, mesh_cam[vis_ind, ...].cpu().detach().numpy(), self.smpl.face, {'focal': cfg.focal, 'princpt': cfg.princpt})
+            #pdb.set_trace()
+            for i in range(kpt_pred_debug.shape[0]):
+                if ((kpt_pred_debug[i, 0] >= 0) * (kpt_pred_debug[i, 0] < cfg.input_body_shape[1]) *
+                    (kpt_pred_debug[i, 1] >= 0) * (kpt_pred_debug[i, 1] < cfg.input_body_shape[0])):
+                    cv2.circle(img_input, 
+                               (int(kpt_pred_debug[i, 0]), int(kpt_pred_debug[i, 1])),  radius=1, color=(0, 0, 255), thickness=-1, lineType=cv2.LINE_AA)
+
+            cv2.imwrite(f'debug_kpt_pred_old_render.jpg', img_input[:, :, ::-1])
+
             # loss functions
             loss = {}
-            loss['smplx_pose'] = self.param_loss(pose, targets['smplx_pose'], meta_info['smplx_pose_valid'])
-            loss['smplx_shape'] = self.param_loss(shape, targets['smplx_shape'], meta_info['smplx_shape_valid'][:, None]) * cfg.smplx_loss_weight
-            loss['smplx_expr'] = self.param_loss(expr, targets['smplx_expr'], meta_info['smplx_expr_valid'][:, None])
-            loss['joint_cam'] = self.coord_loss(joint_cam, targets['joint_cam'], meta_info['joint_valid'] * meta_info['is_3D'][:, None, None])
-            loss['smplx_joint_cam'] = self.coord_loss(joint_cam, targets['smplx_joint_cam'], meta_info['smplx_joint_valid'])
-            loss['lhand_bbox'] = (self.coord_loss(lhand_bbox_center, targets['lhand_bbox_center'], meta_info['lhand_bbox_valid'][:, None]) +
-                                  self.coord_loss(lhand_bbox_size, targets['lhand_bbox_size'], meta_info['lhand_bbox_valid'][:, None]))
-            loss['rhand_bbox'] = (self.coord_loss(rhand_bbox_center, targets['rhand_bbox_center'], meta_info['rhand_bbox_valid'][:, None]) +
-                                  self.coord_loss(rhand_bbox_size, targets['rhand_bbox_size'], meta_info['rhand_bbox_valid'][:, None]))
-            loss['face_bbox'] = (self.coord_loss(face_bbox_center, targets['face_bbox_center'], meta_info['face_bbox_valid'][:, None]) +
-                                 self.coord_loss(face_bbox_size, targets['face_bbox_size'], meta_info['face_bbox_valid'][:, None]))
-            # change hand target joint_img and joint_trunc according to hand bbox (cfg.output_hm_shape -> downsampled hand bbox space)
-            for part_name, bbox in (('lhand', lhand_bbox), ('rhand', rhand_bbox)):
-                for coord_name, trunc_name in (('joint_img', 'joint_trunc'), ('smplx_joint_img', 'smplx_joint_trunc')):
-                    x = targets[coord_name][:, smpl_x.joint_part[part_name], 0]
-                    y = targets[coord_name][:, smpl_x.joint_part[part_name], 1]
-                    z = targets[coord_name][:, smpl_x.joint_part[part_name], 2]
-                    trunc = meta_info[trunc_name][:, smpl_x.joint_part[part_name], 0]
+            loss['joint_proj'] = self.coord_loss(joint_proj, 
+                                                 targets['joint_img'], 
+                                                 meta_info['joint_trunc'])
+            mask_gt = F.interpolate(targets['mask_gt'], cfg.input_body_shape, mode='nearest')
+            #pdb.set_trace()
+            loss['mask'] = self.mask_loss(silhouette[...,3], mask_gt.squeeze(1))
 
-                    x -= (bbox[:, None, 0] / cfg.input_body_shape[1] * cfg.output_hm_shape[2])
-                    x *= (cfg.output_hand_hm_shape[2] / (
-                            (bbox[:, None, 2] - bbox[:, None, 0]) / cfg.input_body_shape[1] * cfg.output_hm_shape[
-                        2]))
-                    y -= (bbox[:, None, 1] / cfg.input_body_shape[0] * cfg.output_hm_shape[1])
-                    y *= (cfg.output_hand_hm_shape[1] / (
-                            (bbox[:, None, 3] - bbox[:, None, 1]) / cfg.input_body_shape[0] * cfg.output_hm_shape[
-                        1]))
-                    z *= cfg.output_hand_hm_shape[0] / cfg.output_hm_shape[0]
-                    trunc *= ((x >= 0) * (x < cfg.output_hand_hm_shape[2]) * (y >= 0) * (
-                            y < cfg.output_hand_hm_shape[1]))
-
-                    coord = torch.stack((x, y, z), 2)
-                    trunc = trunc[:, :, None]
-                    targets[coord_name] = torch.cat((targets[coord_name][:, :smpl_x.joint_part[part_name][0], :], coord,
-                                                     targets[coord_name][:, smpl_x.joint_part[part_name][-1] + 1:, :]),
-                                                    1)
-                    meta_info[trunc_name] = torch.cat((meta_info[trunc_name][:, :smpl_x.joint_part[part_name][0], :],
-                                                       trunc,
-                                                       meta_info[trunc_name][:, smpl_x.joint_part[part_name][-1] + 1:,
-                                                       :]), 1)
-
-            # change hand projected joint coordinates according to hand bbox (cfg.output_hm_shape -> hand bbox space)
-            for part_name, bbox in (('lhand', lhand_bbox), ('rhand', rhand_bbox)):
-                x = joint_proj[:, smpl_x.joint_part[part_name], 0]
-                y = joint_proj[:, smpl_x.joint_part[part_name], 1]
-
-                x -= (bbox[:, None, 0] / cfg.input_body_shape[1] * cfg.output_hm_shape[2])
-                x *= (cfg.output_hand_hm_shape[2] / (
-                        (bbox[:, None, 2] - bbox[:, None, 0]) / cfg.input_body_shape[1] * cfg.output_hm_shape[2]))
-                y -= (bbox[:, None, 1] / cfg.input_body_shape[0] * cfg.output_hm_shape[1])
-                y *= (cfg.output_hand_hm_shape[1] / (
-                        (bbox[:, None, 3] - bbox[:, None, 1]) / cfg.input_body_shape[0] * cfg.output_hm_shape[1]))
-
-                coord = torch.stack((x, y), 2)
-                trans = []
-                for bid in range(coord.shape[0]):
-                    mask = meta_info['joint_trunc'][bid, smpl_x.joint_part[part_name], 0] == 1
-                    if torch.sum(mask) == 0:
-                        trans.append(torch.zeros((2)).float().cuda())
-                    else:
-                        trans.append((-coord[bid, mask, :2] + targets['joint_img'][:, smpl_x.joint_part[part_name], :][
-                                                              bid, mask, :2]).mean(0))
-                trans = torch.stack(trans)[:, None, :]
-                coord = coord + trans  # global translation alignment
-                joint_proj = torch.cat((joint_proj[:, :smpl_x.joint_part[part_name][0], :], coord,
-                                        joint_proj[:, smpl_x.joint_part[part_name][-1] + 1:, :]), 1)
-
-            # change face projected joint coordinates according to face bbox (cfg.output_hm_shape -> face bbox space)
-            coord = joint_proj[:, smpl_x.joint_part['face'], :]
-            trans = []
-            for bid in range(coord.shape[0]):
-                mask = meta_info['joint_trunc'][bid, smpl_x.joint_part['face'], 0] == 1
-                if torch.sum(mask) == 0:
-                    trans.append(torch.zeros((2)).float().cuda())
-                else:
-                    trans.append((-coord[bid, mask, :2] + targets['joint_img'][:, smpl_x.joint_part['face'], :][bid,
-                                                          mask, :2]).mean(0))
-            trans = torch.stack(trans)[:, None, :]
-            coord = coord + trans  # global translation alignment
-            joint_proj = torch.cat((joint_proj[:, :smpl_x.joint_part['face'][0], :], coord,
-                                    joint_proj[:, smpl_x.joint_part['face'][-1] + 1:, :]), 1)
-
-
-            loss['joint_proj'] = self.coord_loss(joint_proj, targets['joint_img'][:, :, :2], meta_info['joint_trunc'])
-            loss['joint_img'] = self.coord_loss(joint_img, smpl_x.reduce_joint_set(targets['joint_img']),
-                                                smpl_x.reduce_joint_set(meta_info['joint_trunc']), meta_info['is_3D'])
-            loss['joint_img_face'] = self.coord_loss(face_joint_img, targets['joint_img'][:, smpl_x.joint_part['face']],
-                                                meta_info['joint_trunc'][:, smpl_x.joint_part['face']], meta_info['is_3D'])
-            loss['smplx_joint_img'] = self.coord_loss(joint_img, smpl_x.reduce_joint_set(targets['smplx_joint_img']),
-                                                      smpl_x.reduce_joint_set(meta_info['smplx_joint_trunc']))
+            #print (loss['joint_proj'])
+            #loss['joint_img'] = self.coord_loss(joint_img, 
+            #                                    self.smpl.reduce_joint_set(targets['joint_img']),
+            #                                    self.smpl.reduce_joint_set(meta_info['joint_trunc']), 
+            #                                    meta_info['is_3D'])
+            
+            #loss['joint_img_face'] = self.coord_loss(face_joint_img, 
+            #                                         targets['joint_img'][:, smpl_x.joint_part['face']],
+            #                                         meta_info['joint_trunc'][:, smpl_x.joint_part['face']], 
+            #                                         meta_info['is_3D'])
+            
+            #loss['smplx_joint_img'] = self.coord_loss(joint_img, 
+            #                                          smpl_x.reduce_joint_set(targets['smplx_joint_img']),
+            #                                          smpl_x.reduce_joint_set(meta_info['smplx_joint_trunc']))
             return loss
         else:
             # change hand output joint_img according to hand bbox
             for part_name, bbox in (('lhand', lhand_bbox), ('rhand', rhand_bbox)):
-                joint_img[:, smpl_x.pos_joint_part[part_name], 0] *= (
+                joint_img[:, self.smpl.pos_joint_part[part_name], 0] *= (
                         ((bbox[:, None, 2] - bbox[:, None, 0]) / cfg.input_body_shape[1] * cfg.output_hm_shape[2]) /
                         cfg.output_hand_hm_shape[2])
-                joint_img[:, smpl_x.pos_joint_part[part_name], 0] += (
+                joint_img[:, self.smpl.pos_joint_part[part_name], 0] += (
                         bbox[:, None, 0] / cfg.input_body_shape[1] * cfg.output_hm_shape[2])
-                joint_img[:, smpl_x.pos_joint_part[part_name], 1] *= (
+                joint_img[:, self.smpl.pos_joint_part[part_name], 1] *= (
                         ((bbox[:, None, 3] - bbox[:, None, 1]) / cfg.input_body_shape[0] * cfg.output_hm_shape[1]) /
                         cfg.output_hand_hm_shape[1])
-                joint_img[:, smpl_x.pos_joint_part[part_name], 1] += (
+                joint_img[:, self.smpl.pos_joint_part[part_name], 1] += (
                         bbox[:, None, 1] / cfg.input_body_shape[0] * cfg.output_hm_shape[1])
 
             # change input_body_shape to input_img_shape
@@ -368,10 +475,14 @@ class Model(nn.Module):
                 bbox[:, 2] *= cfg.input_img_shape[1] / cfg.input_body_shape[1]
                 bbox[:, 3] *= cfg.input_img_shape[0] / cfg.input_body_shape[0]
 
-            # test output
+
             out = {}
             out['img'] = inputs['img']
-            out['joint_img'] = joint_img
+            out['debug_img'] = body_img
+            #out['debug_silhouette'] = silhouette
+            #out['debug_joint_proj'] = joint_proj
+            #out['debug_rendered'] = rendered
+            out['joint_img'] = joint_proj#joint_img
             out['smplx_joint_proj'] = joint_proj
             out['smplx_mesh_cam'] = mesh_cam
             out['smplx_root_pose'] = root_pose
@@ -385,6 +496,8 @@ class Model(nn.Module):
             out['lhand_bbox'] = lhand_bbox
             out['rhand_bbox'] = rhand_bbox
             out['face_bbox'] = face_bbox
+            out['outpu'] = regoutput
+            out['joint_cam_tr'] = joint_cam_tr
             if 'smplx_pose' in targets:
                 out['smplx_mesh_cam_pseudo_gt'] = mesh_pseudo_gt
             if 'smplx_mesh_cam' in targets:
@@ -410,7 +523,7 @@ def init_weights(m):
         pass
 
 
-def get_model(mode):
+def get_model(smpl, mode):
     # body
     vit_cfg = Config.fromfile(cfg.encoder_config_file)
     vit = build_posenet(vit_cfg.model)
@@ -454,5 +567,5 @@ def get_model(mode):
 
     encoder = vit.backbone
     model = Model(encoder, body_position_net, body_rotation_net, box_net, hand_position_net, hand_roi_net, hand_decoder, hand_rotation_net,
-                  face_position_net, face_roi_net, face_decoder, face_regressor)
+                  face_position_net, face_roi_net, face_decoder, face_regressor, smpl)
     return model

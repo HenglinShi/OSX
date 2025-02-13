@@ -5,7 +5,7 @@ import sys
 class Config:
 
     # dataset setting
-    dataset_list = ['Human36M', 'MSCOCO', 'MPII', 'AGORA', 'EHF', 'UBody']
+    dataset_list = ['Human36M', 'MSCOCO', 'MPII', 'AGORA', 'EHF', 'UBody', 'IMA']
     trainset_3d = ['Human36M']; trainset_2d = ['MSCOCO', 'MPII']; testset = 'EHF'
 
     ## UBody setting
@@ -13,6 +13,7 @@ class Config:
     test_sample_interval = 100
     make_same_len = False
     ubody_benchmark = False
+    ima_benchmark = False
 
     ## input, output size
     input_img_shape = (512, 384)
@@ -73,6 +74,7 @@ class Config:
         self.gpu_ids = gpu_ids
         self.num_gpus = len(self.gpu_ids.split(','))
         self.lr = float(lr)
+        self.debug = True
         self.continue_train = continue_train
         os.environ["CUDA_VISIBLE_DEVICES"] = self.gpu_ids
         print('>>> Using GPU: {}'.format(self.gpu_ids))
@@ -81,6 +83,7 @@ class Config:
         names = self.__dict__
         for k, v in kwargs.items():
             names[k] = v
+        self.model_type = self.model_type
         self.prepare_dirs(self.exp_name)
         if self.encoder_setting == 'osx_b':
             self.encoder_config_file = os.path.join(cfg.root_dir, 'main/transformer_utils/configs/osx/encoder/body_encoder_base.py')
@@ -101,6 +104,12 @@ class Config:
             self.trainset_3d = ['Human36M'];
             self.trainset_2d = ['UBody', 'MSCOCO', 'MPII'];
             self.testset = 'UBody'
+        if self.ima_benchmark:
+            self.trainset_3d = []
+            self.trainset_2d = ['IMA']
+            self.testset = 'IMA'
+
+
 
     def prepare_dirs(self, exp_name):
         self.output_dir = osp.join(self.root_dir, exp_name)

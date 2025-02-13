@@ -131,10 +131,11 @@ class Trainer(Base):
         self.batch_generator = DataLoader(dataset=trainset_loader, batch_size=cfg.num_gpus * cfg.train_batch_size,
                                           shuffle=True, num_workers=cfg.num_thread, pin_memory=True, drop_last=True)
 
-    def _make_model(self):
+    from common.utils.human_models import smpl_x
+    def _make_model(self, smpl=smpl_x):
         # prepare network
         self.logger.info("Creating graph and optimizer...")
-        model = get_model('train')
+        model = get_model(smpl, 'train')
         model = DataParallel(model).cuda()
         optimizer = self.get_optimizer(model)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, cfg.end_epoch * self.itr_per_epoch,
@@ -166,12 +167,12 @@ class Tester(Base):
         self.testset = testset_loader
         self.batch_generator = batch_generator
 
-    def _make_model(self):
+    def _make_model(self, smpl):
         self.logger.info('Load checkpoint from {}'.format(cfg.pretrained_model_path))
 
         # prepare network
         self.logger.info("Creating graph...")
-        model = get_model('test')
+        model = get_model(smpl, 'test')
         model = DataParallel(model).cuda()
         ckpt = torch.load(cfg.pretrained_model_path)
 
@@ -199,12 +200,12 @@ class Demoer(Base):
             self.test_epoch = int(test_epoch)
         super(Demoer, self).__init__(log_name='test_logs.txt')
 
-    def _make_model(self):
+    def _make_model(self, smpl):
         self.logger.info('Load checkpoint from {}'.format(cfg.pretrained_model_path))
 
         # prepare network
         self.logger.info("Creating graph...")
-        model = get_model('test')
+        model = get_model(smpl, 'test')
         model = DataParallel(model).cuda()
         ckpt = torch.load(cfg.pretrained_model_path)
 

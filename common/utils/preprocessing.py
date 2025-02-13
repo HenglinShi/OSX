@@ -104,12 +104,45 @@ def augmentation(img, bbox, data_split):
     else:
         scale, rot, color_scale, do_flip = 1.0, 0.0, np.array([1, 1, 1]), False
 
+    #scale = 1.0
+    #do_flip = True
+    #rot = 0.0
+    #print (scale, rot, color_scale, do_flip)
+
     img, trans, inv_trans = generate_patch_image(img, bbox, scale, rot, do_flip, cfg.input_img_shape)
     img = np.clip(img * color_scale[None, None, :], 0, 255)
     return img, trans, inv_trans, rot, do_flip
 
 
-def generate_patch_image(cvimg, bbox, scale, rot, do_flip, out_shape):
+def get_augmentation_config(data_split):
+    if data_split == 'train':
+        scale, rot, color_scale, do_flip = get_aug_config()
+    else:
+        scale, rot, color_scale, do_flip = 1.0, 0.0, np.array([1, 1, 1]), False
+
+    return scale, rot, color_scale, do_flip
+
+
+def augmentation2(img, img2, bbox, data_split):
+    if data_split == 'train':
+        scale, rot, color_scale, do_flip = get_aug_config()
+    else:
+        scale, rot, color_scale, do_flip = 1.0, 0.0, np.array([1, 1, 1]), False
+
+    #scale = 1.0
+    #do_flip = True
+    #rot = 0.0
+    #print (scale, rot, color_scale, do_flip)
+
+    img, trans, inv_trans = generate_patch_image(img, bbox, scale, rot, do_flip, cfg.input_img_shape)
+    img = np.clip(img * color_scale[None, None, :], 0, 255)
+
+    img2, trans, inv_trans = generate_patch_image(img2, bbox, scale, rot, do_flip, cfg.input_img_shape)
+    img2 = np.clip(img2 * color_scale[None, None, :], 0, 255)
+
+    return img, img2, trans, inv_trans, rot, do_flip
+
+def generate_patch_image(cvimg, bbox, scale, rot, do_flip, out_shape, flags=cv2.INTER_LINEAR):
     img = cvimg.copy()
     img_height, img_width, img_channels = img.shape
 
@@ -123,7 +156,7 @@ def generate_patch_image(cvimg, bbox, scale, rot, do_flip, out_shape):
         bb_c_x = img_width - bb_c_x - 1
 
     trans = gen_trans_from_patch_cv(bb_c_x, bb_c_y, bb_width, bb_height, out_shape[1], out_shape[0], scale, rot)
-    img_patch = cv2.warpAffine(img, trans, (int(out_shape[1]), int(out_shape[0])), flags=cv2.INTER_LINEAR)
+    img_patch = cv2.warpAffine(img, trans, (int(out_shape[1]), int(out_shape[0])), flags=flags)
     img_patch = img_patch.astype(np.float32)
     inv_trans = gen_trans_from_patch_cv(bb_c_x, bb_c_y, bb_width, bb_height, out_shape[1], out_shape[0], scale, rot,
                                         inv=True)
@@ -174,6 +207,47 @@ def gen_trans_from_patch_cv(c_x, c_y, src_width, src_height, dst_width, dst_heig
 
     trans = trans.astype(np.float32)
     return trans
+
+
+def process_db_coord_hshi(joint_img, joint_valid, do_flip, img_shape, flip_pairs, img2bb_trans, rot,
+                     src_joints_name, target_joints_name):
+    joint_img, joint_valid = joint_img.copy(), joint_valid.copy()
+
+    # flip augmentation
+    if do_flip:
+        #joint_cam[:, 0] = -joint_cam[:, 0]
+        joint_img[:, 0] = img_shape[1] - 1 - joint_img[:, 0]
+        for pair in flip_pairs:
+            joint_img[pair[0], :], joint_img[pair[1], :] = joint_img[pair[1], :].copy(), joint_img[pair[0], :].copy()
+            #joint_cam[pair[0], :], joint_cam[pair[1], :] = joint_cam[pair[1], :].copy(), joint_cam[pair[0], :].copy()
+            joint_valid[pair[0], :], joint_valid[pair[1], :] = joint_valid[pair[1], :].copy(), joint_valid[pair[0],
+                                                                                               :].copy()
+
+    # 3D data rotation augmentation
+    #rot_aug_mat = np.array([[np.cos(np.deg2rad(-rot)), -np.sin(np.deg2rad(-rot)), 0],
+    #                        [np.sin(np.deg2rad(-rot)), np.cos(np.deg2rad(-rot)), 0],
+    #                        [0, 0, 1]], dtype=np.float32)
+    #joint_cam = np.dot(rot_aug_mat, joint_cam.transpose(1, 0)).transpose(1, 0)
+
+    # affine transformation
+    joint_img_xy1 = np.concatenate((joint_img[:, :2], np.ones_like(joint_img[:, :1])), 1)
+    joint_img[:, :2] = np.dot(img2bb_trans, joint_img_xy1.transpose(1, 0)).transpose(1, 0)
+    joint_img[:, 0] = joint_img[:, 0] / cfg.input_img_shape[1] * cfg.output_hm_shape[2]
+    joint_img[:, 1] = joint_img[:, 1] / cfg.input_img_shape[0] * cfg.output_hm_shape[1]
+
+    # check truncation
+    joint_trunc = joint_valid * ((joint_img[:, 0] >= 0) * (joint_img[:, 0] < cfg.output_hm_shape[2]) * \
+                                 (joint_img[:, 1] >= 0) * (joint_img[:, 1] < cfg.output_hm_shape[1]) * \
+                                 (joint_img[:, 2] >= 0) * (joint_img[:, 2] < cfg.output_hm_shape[0])).reshape(-1,
+                                                                                                              1).astype(
+        np.float32)
+
+    # transform joints to target db joints
+    joint_img = transform_joint_to_other_db(joint_img, src_joints_name, target_joints_name)
+    #joint_cam = transform_joint_to_other_db(joint_cam, src_joints_name, target_joints_name)
+    joint_valid = transform_joint_to_other_db(joint_valid, src_joints_name, target_joints_name)
+    joint_trunc = transform_joint_to_other_db(joint_trunc, src_joints_name, target_joints_name)
+    return joint_img, joint_valid, joint_trunc
 
 
 def process_db_coord(joint_img, joint_cam, joint_valid, do_flip, img_shape, flip_pairs, img2bb_trans, rot,

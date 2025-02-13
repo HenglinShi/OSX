@@ -1,0 +1,19 @@
+Collecting xtcocotools
+  Downloading xtcocotools-1.14.3-cp38-cp38-manylinux1_x86_64.whl (447 kB)
+Requirement already satisfied: numpy>=1.20.0 in /opt/conda/lib/python3.8/site-packages (from xtcocotools) (1.23.1)
+Requirement already satisfied: setuptools>=18.0 in /opt/conda/lib/python3.8/site-packages (from xtcocotools) (60.2.0)
+Requirement already satisfied: matplotlib>=2.1.0 in /opt/conda/lib/python3.8/site-packages (from xtcocotools) (3.7.5)
+Requirement already satisfied: cython>=0.27.3 in /opt/conda/lib/python3.8/site-packages (from xtcocotools) (3.0.11)
+Requirement already satisfied: packaging>=20.0 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (24.2)
+Requirement already satisfied: kiwisolver>=1.0.1 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (1.4.7)
+Requirement already satisfied: pyparsing>=2.3.1 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (3.1.4)
+Requirement already satisfied: contourpy>=1.0.1 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (1.1.1)
+Requirement already satisfied: cycler>=0.10 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (0.12.1)
+Requirement already satisfied: pillow>=6.2.0 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (9.0.1)
+Requirement already satisfied: fonttools>=4.22.0 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (4.55.0)
+Requirement already satisfied: importlib-resources>=3.2.0 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (6.4.5)
+Requirement already satisfied: python-dateutil>=2.7 in /opt/conda/lib/python3.8/site-packages (from matplotlib>=2.1.0->xtcocotools) (2.9.0.post0)
+Requirement already satisfied: zipp>=3.1.0 in /opt/conda/lib/python3.8/site-packages (from importlib-resources>=3.2.0->matplotlib>=2.1.0->xtcocotools) (3.20.2)
+Requirement already satisfied: six>=1.5 in /opt/conda/lib/python3.8/site-packages (from python-dateutil>=2.7->matplotlib>=2.1.0->xtcocotools) (1.16.0)
+Installing collected packages: xtcocotools
+Successfully installed xtcocotools-1.14.3

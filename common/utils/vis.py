@@ -58,6 +58,29 @@ def vis_keypoints(img, kps, alpha=1):
     # Blend the keypoints.
     return cv2.addWeighted(img, 1.0 - alpha, kp_mask, alpha, 0)
 
+
+def vis_keypoints_error(img, kps_pred, kps_gt, alpha=1):
+    # Convert from plt 0-1 RGBA colors to 0-255 BGR colors for opencv.
+    cmap = plt.get_cmap('rainbow')
+    colors = [cmap(i) for i in np.linspace(0, 1, len(kps_pred) + 2)]
+    colors = [(c[2] * 255, c[1] * 255, c[0] * 255) for c in colors]
+
+    # Perform the drawing on a copy of the image, to allow for blending.
+    kp_mask = np.copy(img)
+
+    # Draw the keypoints.
+    for i in range(len(kps_pred)):
+        p_pred = kps_pred[i][0].astype(np.int32), kps_pred[i][1].astype(np.int32)
+        p_gt = kps_gt[i][0].astype(np.int32), kps_gt[i][1].astype(np.int32)
+
+        cv2.circle(kp_mask, p_pred, radius=4, color=colors[i], thickness=-1, lineType=cv2.LINE_AA)
+        cv2.circle(kp_mask, p_gt, radius=1, color=colors[i], thickness=-1, lineType=cv2.LINE_AA)
+        cv2.line(kp_mask, p_pred, p_gt, color=colors[i], thickness=1)  
+
+    # Blend the keypoints.
+    return cv2.addWeighted(img, 1.0 - alpha, kp_mask, alpha, 0)
+
+
 def vis_mesh(img, mesh_vertex, alpha=0.5):
     # Convert from plt 0-1 RGBA colors to 0-255 BGR colors for opencv.
     cmap = plt.get_cmap('rainbow')

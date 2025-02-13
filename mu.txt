@@ -1,0 +1,18 @@
+Collecting mmcv-full==1.7.1
+  Using cached mmcv-full-1.7.1.tar.gz (605 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: addict in /home/x_hensh/.local/lib/python3.9/site-packages (from mmcv-full==1.7.1) (2.4.0)
+Requirement already satisfied: numpy in /software/sse/manual/PyTorch/2.3.0/python-3.9/envs/pytorch_2.3.0/lib/python3.9/site-packages (from mmcv-full==1.7.1) (1.26.4)
+Requirement already satisfied: packaging in /software/sse/manual/PyTorch/2.3.0/python-3.9/envs/pytorch_2.3.0/lib/python3.9/site-packages (from mmcv-full==1.7.1) (24.1)
+Requirement already satisfied: Pillow in /home/x_hensh/.local/lib/python3.9/site-packages (from mmcv-full==1.7.1) (11.0.0)
+Requirement already satisfied: pyyaml in /software/sse/manual/PyTorch/2.3.0/python-3.9/envs/pytorch_2.3.0/lib/python3.9/site-packages (from mmcv-full==1.7.1) (6.0.1)
+Requirement already satisfied: yapf in /home/x_hensh/.local/lib/python3.9/site-packages (from mmcv-full==1.7.1) (0.43.0)
+Requirement already satisfied: platformdirs>=3.5.1 in /software/sse/manual/PyTorch/2.3.0/python-3.9/envs/pytorch_2.3.0/lib/python3.9/site-packages (from yapf->mmcv-full==1.7.1) (4.2.2)
+Requirement already satisfied: tomli>=2.0.1 in /software/sse/manual/PyTorch/2.3.0/python-3.9/envs/pytorch_2.3.0/lib/python3.9/site-packages (from yapf->mmcv-full==1.7.1) (2.0.1)
+Building wheels for collected packages: mmcv-full
+  Building wheel for mmcv-full (setup.py): started
+  Building wheel for mmcv-full (setup.py): still running...
+  Building wheel for mmcv-full (setup.py): finished with status 'error'
+  Running setup.py clean for mmcv-full
+Failed to build mmcv-full

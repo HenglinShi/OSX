@@ -1,6 +1,8 @@
 import argparse
 from config import cfg
-
+import sys
+sys.path.insert(0, "../main/transformer_utils")
+import pdb
 import torch.backends.cudnn as cudnn
 
 def parse_args():
@@ -16,7 +18,9 @@ def parse_args():
     parser.add_argument('--decoder_setting', type=str, default='normal', choices=['normal', 'wo_face_decoder', 'wo_decoder'])
     parser.add_argument('--agora_benchmark', action='store_true')
     parser.add_argument('--ubody_benchmark', action='store_true')
+    parser.add_argument('--ima_benchmark', action='store_true')
     parser.add_argument('--pretrained_model_path', type=str, default='../pretrained_models/osx_l.pth.tar')
+    parser.add_argument('--model_type', type=str, default='smil_h')
     args = parser.parse_args()
 
     if not args.gpu_ids:
@@ -36,6 +40,18 @@ def parse_args():
 def main():
     print('### Argument parse and create log ###')
     args = parse_args()
+
+    model_type = args.model_type
+
+    if model_type == 'smpl_h':
+        from common.utils.human_models import smpl_h as smpl
+    elif model_type == 'smpl_x':
+        from common.utils.human_models import smpl_x as smpl
+    elif model_type == 'smil_h':
+        from common.utils.human_models import smil_h as smpl
+    else:
+        raise NotImplementedError()
+    
     cfg.set_args(args.gpu_ids, args.lr, args.continue_train)
     cfg.set_additional_args(exp_name=args.exp_name,
                             num_thread=args.num_thread, train_batch_size=args.train_batch_size,
@@ -44,13 +60,15 @@ def main():
                             end_epoch=args.end_epoch,
                             pretrained_model_path=args.pretrained_model_path,
                             agora_benchmark=args.agora_benchmark,
-                            ubody_benchmark=args.ubody_benchmark
+                            ubody_benchmark=args.ubody_benchmark,
+                            ima_benchmark=args.ima_benchmark,
+                            model_type=model_type
                             )
     cudnn.benchmark = True
     from common.base import Trainer
     trainer = Trainer()
     trainer._make_batch_generator()
-    trainer._make_model()
+    trainer._make_model(smpl)
 
     print('### Set some hyper parameters ###')
     for k in cfg.__dict__:
@@ -68,6 +86,8 @@ def main():
             trainer.optimizer.zero_grad()
             loss = trainer.model(inputs, targets, meta_info, 'train')
             loss = {k: loss[k].mean() for k in loss}
+            #pdb.set_trace()
+            loss['mask'] = loss['mask'] * 10
 
             # backward
             sum(loss[k] for k in loss).backward()
