@@ -87,7 +87,7 @@ def main():
             loss = trainer.model(inputs, targets, meta_info, 'train')
             loss = {k: loss[k].mean() for k in loss}
             #pdb.set_trace()
-            loss['mask'] = loss['mask'] * 10
+            loss['mask'] = loss['mask'] * 20
 
             # backward
             sum(loss[k] for k in loss).backward()

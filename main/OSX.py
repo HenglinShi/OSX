@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from common.nets.module import PositionNet, HandRotationNet, FaceRegressor, BoxNet, BoxSizeNet, HandRoI, FaceRoI, BodyRotationNet
-from common.nets.loss import CoordLoss, ParamLoss, CELoss, SilhouetteLoss
+from common.nets.loss import CoordLoss, ParamLoss, CELoss, SilhouetteLoss, SilhouetteIoULoss
 #from common.utils.human_models import smpl_h, smpl_x
 from common.utils.transforms import rot6d_to_axis_angle, restore_bbox
 from config import cfg
@@ -47,6 +47,7 @@ class Model(nn.Module):
         self.param_loss = ParamLoss()
         self.ce_loss = CELoss()
         self.mask_loss = SilhouetteLoss()
+        self.mask_iou_loss = SilhouetteIoULoss()
 
         self.body_num_joints = len(smpl.pos_joint_part['body'])
         self.hand_num_joints = len(smpl.pos_joint_part['rhand'])
@@ -286,6 +287,7 @@ class Model(nn.Module):
         return lhand_bbox_center, rhand_bbox_center, face_bbox_center
 
     def forward(self, inputs, targets, meta_info, mode):
+        #pdb.set_trace()
         
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape)
         batch_size = body_img.shape[0]
@@ -438,6 +440,7 @@ class Model(nn.Module):
             mask_gt = F.interpolate(targets['mask_gt'], cfg.input_body_shape, mode='nearest')
             #pdb.set_trace()
             loss['mask'] = self.mask_loss(silhouette[...,3], mask_gt.squeeze(1))
+            loss['mask'] = self.mask_iou_loss(silhouette[...,3], mask_gt.squeeze(1))
 
             #print (loss['joint_proj'])
             #loss['joint_img'] = self.coord_loss(joint_img, 

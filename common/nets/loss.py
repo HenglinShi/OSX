@@ -27,6 +27,27 @@ class SilhouetteLoss(nn.Module):
         #    loss_z = loss[:,:,2:] * is_3D[:,None,None].float()
         #    loss = torch.cat((loss[:,:,:2], loss_z),2)
         return loss
+    
+
+def distance_transform_loss(predict, dist_mat):
+    prod = torch.sum(predict * dist_mat)
+    norm = torch.sum(predict) ** (3/2) 
+    dist = prod/(norm + 1e-6)
+    return dist
+
+class SilhouetteIoULoss(nn.Module):
+    def __init__(self):
+        super(SilhouetteIoULoss, self).__init__()
+
+    def forward(self, mask_pred, mask_gt):
+        assert mask_pred.shape == mask_gt.shape, 'Target and Predict should have same shape'
+        dims = tuple(range(mask_pred.ndimension())[1:])
+        intersect = (mask_pred * mask_gt).sum(dims)
+        union = (mask_pred + mask_gt - mask_pred * mask_gt).sum(dims) + 1e-6
+        return 1. - (intersect / union)# / intersect.nelement()
+
+
+
 
 class ParamLoss(nn.Module):
     def __init__(self):

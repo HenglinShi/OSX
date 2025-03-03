@@ -73,11 +73,20 @@ model_path = args.pretrained_model_path
 assert osp.exists(model_path), 'Cannot find model at ' + model_path
 print('Load checkpoint from {}'.format(model_path))
 
+epoch = model_path.split('/')[-1].split('_')[-1].split('.')[0]
 demoer.model.eval()
 
 # prepare input image
 transform = transforms.ToTensor()
 original_img = load_img(args.img_path)
+
+image_name = args.img_path.split('/')[-1][:-4]
+video_name = image_name[1:7]
+mask_path = os.path.join('/proj/berzelius-2024-331/users/x_hensh/git/OSX/dataset/IMA/mask/render/', 'video_'+video_name, image_name + '.jpg')
+original_mask = load_img(mask_path)
+
+#pdb.set_trace()
+
 original_img_height, original_img_width = original_img.shape[:2]
 os.makedirs(args.output_folder, exist_ok=True)
 
@@ -95,8 +104,13 @@ for detection in person_results:
     confidences.append(confidence)
     boxes.append([x1, y1, x2 - x1, y2 - y1])
 indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
-vis_mesh = original_img.copy()
-vis_kpts = original_img.copy()
+#vis_mesh = original_img.copy()
+#vis_kpts = original_img.copy()
+
+
+vis_mesh = original_mask.copy()
+vis_kpts = original_mask.copy()
+
 
 import matplotlib.pyplot as plt
 if len(indices) == 0:
@@ -178,5 +192,5 @@ for num, indice in enumerate(indices):
 
 
 # save rendered image
-cv2.imwrite(os.path.join(args.output_folder, f'render.jpg'), vis_mesh[:, :, ::-1])
-cv2.imwrite(os.path.join(args.output_folder, f'kpts.jpg'), vis_kpts[:, :, ::-1])
+cv2.imwrite(os.path.join(args.output_folder, f'{epoch}_render.jpg'), vis_mesh[:, :, ::-1])
+cv2.imwrite(os.path.join(args.output_folder, f'{epoch}_kpts.jpg'), vis_kpts[:, :, ::-1])

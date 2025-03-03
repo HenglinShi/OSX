@@ -14,6 +14,11 @@ import torch
 import pdb
 from pycocotools.coco import COCO
 from common.utils.smplx.smplx.joint_names import SMPLH_JOINT_NAMES, JOINT_NAMES
+from data.data_utils import convert_grph_to_labels, convert_grph_to_binary_mask
+from data.data_utils import get_dsr_mc_probPrior, get_dsr_c_probPrior
+from data.data_utils import convert_fixed_length_vector, get_distance_matrix
+from data import constants
+
 #from common.utils.human_models import smpl_x
 
 if cfg.model_type == 'smpl_h':
@@ -40,6 +45,7 @@ class IMA(torch.utils.data.Dataset):
         self.annot_path = osp.join(cfg.data_dir, 'IMA', 'annotations')
         self.img_path = osp.join(cfg.data_dir, 'IMA', 'images')
         self.mask_gt_root = '/proj/berzelius-2024-331/users/x_hensh/git/OSX/dataset/IMA/mask/raw_masks'
+        self.grph_gt_root = '/proj/berzelius-2024-331/users/x_hensh/data/Youtube-Infant-Body-Parsing/Graphonomy_video_separated_png'
 
         #self.resolution = (2160, 3840)  # height, width. one of (720, 1280) and (2160, 3840)
         self.resolution = (0, 0)  # height, width. one of (720, 1280) and (2160, 3840)
@@ -49,30 +55,31 @@ class IMA(torch.utils.data.Dataset):
 
 
         self.keypoints_posemodel = [
-            'left_hip', 
-            'left_eye', 
-            'left_knee', 
-            'left_elbow', 
-            'neck', 
-            'right_elbow', 
-            'right_knee', 
-            'left_ear',
-            'right_shoulder', 
-            'right_ear', 
-            'left_wrist', 
-            'left_shoulder', 
-            'left_ankle', 
-            'right_eye', 
-            'right_wrist', 
-            'right_hip', 
-            'right_ankle', 
-            'nose', 
+            'left_hip',         # 0 
+            'left_eye',         #1
+            'left_knee',        #2
+            'left_elbow',       #3
+            'neck',             #4
+            'right_elbow',      #5
+            'right_knee',       #6
+            'left_ear',         #7
+            'right_shoulder',   #8
+            'right_ear',        #9
+            'left_wrist',       #10
+            'left_shoulder',    #11
+            'left_ankle',       #12
+            'right_eye',        # 13
+            'right_wrist',      #14
+            'right_hip',        # 15
+            'right_ankle',      #16
+            'nose',             #17
         ]
 
         self.keypoint_idx_posemodel = [SMPLH_JOINT_NAMES[i] for i in smpl.joint_idx]#SMPLH_JOINT_NAMES[smpl.joint_idx]
         self.keypoint_idx_posemodel = [self.keypoint_idx_posemodel.index(i) for i in self.keypoints_posemodel]
+        #pdb.set_trace()
 
-        
+        self.method = 'dsr'
 
 
 
@@ -178,10 +185,6 @@ class IMA(torch.utils.data.Dataset):
                 height = video_sizes_df.height_real[row]
                 width = video_sizes_df.width_real[row]
                 pass
-            #elif video_sizes_df['Unnamed: 7'][row] == 'original/resize': 
-            #    height = video_sizes_df.height_real[row]
-            #    width = video_sizes_df.width_real[row]
-            #    pass
             elif video_sizes_df['Unnamed: 7'][row] == 'Neither': 
                 height = video_sizes_df.height_real[row]
                 width = video_sizes_df.width_real[row]
@@ -214,6 +217,7 @@ class IMA(torch.utils.data.Dataset):
                 imgname = f"1{img['video'][-6:]}{img['frame']:06d}.jpg"
                 img_path = osp.join(self.img_path, imgname)
                 mask_gt_path = osp.join(self.mask_gt_root, img['video'], imgname)
+                grph_path = osp.join(self.grph_gt_root, img['video'], imgname)
 
 
                 # get the desired image shape
@@ -231,6 +235,7 @@ class IMA(torch.utils.data.Dataset):
 
                 data_dict = {'img_path': img_path,
                              'mask_gt_path': mask_gt_path,
+                             'grph_gt_path': grph_path,
                              'img_shape': img_shape,
                              'bbox': bbox,
                              #'lhand_bbox': lhand_bbox,
@@ -348,6 +353,9 @@ class IMA(torch.utils.data.Dataset):
         data = copy.deepcopy(self.datalist[idx])
         img_path, img_shape, bbox = data['img_path'], data['img_shape'], data['bbox']
         mask_gt_path = data['mask_gt_path']
+        grph_gt_path = data['grph_gt_path']
+        if 'jpg' == grph_gt_path[-3:]:
+            grph_gt_path = grph_gt_path[:-3] + 'png'
 
         # Load data and gt
         joint_2d_orignal = data['joints_2d']
@@ -357,6 +365,10 @@ class IMA(torch.utils.data.Dataset):
         mask_original = cv2.imread(mask_gt_path)
         mask_original[mask_original<125] = 0
         mask_original[mask_original>125] = 255
+        grph_original = cv2.imread(grph_gt_path)#[:,:,::-1].copy().astype(np.float32) 
+
+
+
         #
      
         h, w, c = img_orignal.shape
@@ -365,9 +377,12 @@ class IMA(torch.utils.data.Dataset):
         if img_shape[0] != w or img_shape[1] != h:
             img_resized = cv2.resize(img_orignal, img_shape, interpolation = cv2.INTER_LINEAR)
             mask_resized = cv2.resize(mask_original, img_shape, interpolation = cv2.INTER_NEAREST)
+            grph_resized = cv2.resize(grph_original, img_shape, interpolation = cv2.INTER_NEAREST)
         else:
             img_resized = img_orignal
             mask_resized = mask_original
+            grph_resized = grph_original
+
         
 
         scale, rot, color_scale, do_flip = get_augmentation_config(self.data_split)
@@ -376,7 +391,8 @@ class IMA(torch.utils.data.Dataset):
         img_aug = np.clip(img_aug * color_scale[None, None, :], 0, 255)
 
         #img2bb_trans, bb2img_trans
-        mask_aug, trans_aug, inv_trans_aug = generate_patch_image(mask_resized, bbox, scale, rot, do_flip, cfg.input_img_shape, flags=cv2.INTER_NEAREST)     
+        mask_aug, trans_aug, inv_trans_aug = generate_patch_image(mask_resized, bbox, scale, rot, do_flip, cfg.input_img_shape, flags=cv2.INTER_NEAREST)
+        grph_aug, trans_aug, inv_trans_aug = generate_patch_image(grph_resized, bbox, scale, rot, do_flip, cfg.input_img_shape, flags=cv2.INTER_NEAREST)     
         #
         #mask_aug = np.clip(mask_aug * color_scale[None, None, :], 0, 255)
         
@@ -393,12 +409,15 @@ class IMA(torch.utils.data.Dataset):
 
 
         mask_scaled = self.transform(mask_aug[...,2].astype(np.float32)) / 255.
+        grph_scaled = grph_aug[:,:,::-1].copy().astype(np.float32)
         #pdb.set_trace()
 
 
         #img_kpt = cv2.resize(img_kpt, (cfg.input_body_shape[1],cfg.input_body_shape[0]), interpolation = cv2.INTER_LINEAR)
         #img_kpt_aug = cv2.resize(img_kpt_aug, (cfg.input_body_shape[1],cfg.input_body_shape[0]), interpolation = cv2.INTER_LINEAR)
 
+
+        
 
 
         if self.data_split == 'train':
@@ -494,12 +513,43 @@ class IMA(torch.utils.data.Dataset):
             #joint_2d_hm[np.isnan(joint_2d_hm)] = 0
             
 
+            if self.method == 'dsr':
+                #gt_keypoints_2d_orig = 0 #item['keypoints'].clone() 
+                #gt_keypoints_2d_orig[:, :-1] = 0 #0.5 * self.options.IMG_RES * (gt_keypoints_2d_orig[:, :-1] + 1) 
+                #gt_keypoints_2d_np = 0# gt_keypoints_2d_orig.unsqueeze(0).numpy() 
+                grph = grph_scaled.copy().astype(np.uint8)
+                #np.transpose((grph_scaled.copy() ).astype(np.uint8), (1,2,0)) 
+                #pdb.set_trace()
+                # Get graphonomy data - SR-Pixel 
+                grph_dsr_mc_gt, valid_labels_dsr_mc, _ = convert_grph_to_binary_mask(grph, True, True, joint_2d_aug) 
+                #pdb.set_trace()
+                smpl_textures_dsr_mc_gt = get_dsr_mc_probPrior(valid_labels_dsr_mc) 
+                grph_dsr_mc_dist_mat = get_distance_matrix(grph_dsr_mc_gt) 
+                # Get graphonomy data - SR-Vertex 
+                grph_dsr_c_gt, valid_labels_dsr_c, class_weight = convert_grph_to_labels(grph, joint_2d_aug,  \
+                                                True, constants.DSR_C_LABELS_MAP, constants.DSR_C_LABELS) 
+                smpl_textures_dsr_c_gt = get_dsr_c_probPrior(True, constants.DSR_C_LABELS_MAP)  
+
+                # Combine Silheoute and Probability to be used as texture
+                smpl_textures_gt = np.concatenate((smpl_textures_dsr_mc_gt[None, ...],  \
+                                                    smpl_textures_dsr_c_gt), axis=0) 
+
+
+
 
 
 
             targets = {'joint_img': joint_2d_gt, 
                        'mask_gt': mask_scaled,
+                       'grph_gt': grph_scaled,
                        'smplx_joint_img': joint_2d_hm,
+                       'grph_dsr_c_label':grph_dsr_c_gt,
+                       'grph_dsr_mc_label': grph_dsr_mc_gt,
+                       'grph_dsr_mc_dist_mat': grph_dsr_mc_dist_mat,
+                       'smpl_textures_gt': smpl_textures_gt,
+                       'dsr_c_class_weight': class_weight,
+                       'valid_labels_dsr_mc':convert_fixed_length_vector(valid_labels_dsr_mc, 'dsr_mc'),
+                       'valid_labels_dsr_c': convert_fixed_length_vector(valid_labels_dsr_c, 'dsr_c')
                        #'joint_cam': joint_cam, '
                        #'smplx_joint_cam': joint_cam, 'smplx_pose': smplx_pose, 'smplx_shape': smplx_shape,
                        #'smplx_expr': smplx_expr, 'lhand_bbox_center': lhand_bbox_center,
