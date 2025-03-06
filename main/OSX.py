@@ -17,7 +17,9 @@ import pdb
 import numpy as np
 from render_p3d import base_renderer
 import matplotlib.pyplot as plt
-
+from pytorch3d.renderer import TexturesAtlas
+from scipy import ndimage
+from loguru import logger
 class Model(nn.Module):
     def __init__(self, encoder, body_position_net, body_rotation_net, box_net, hand_position_net, hand_roi_net, hand_decoder,
                  hand_rotation_net, face_position_net, face_roi_net, face_decoder, face_regressor, smpl):
@@ -33,7 +35,7 @@ class Model(nn.Module):
         self.hand_position_net = hand_position_net
         self.hand_decoder = hand_decoder
         self.hand_regressor = hand_rotation_net
-
+        self.criterion_dsr_c = nn.CrossEntropyLoss()
         # face
         self.face_roi_net = face_roi_net
         self.face_position_net = face_position_net
@@ -285,11 +287,115 @@ class Model(nn.Module):
         lhand_bbox_center, rhand_bbox_center, face_bbox_center = \
             bbox[:, 0, :2], bbox[:, 1, :2], bbox[:, 2, :2]
         return lhand_bbox_center, rhand_bbox_center, face_bbox_center
+    
+    def get_distance_matrix(self, target):
+        dist_mat = ndimage.distance_transform_edt(1-target)
+        return dist_mat
+        
+    def distance_transform_loss(self, predict, dist_mat):
+        prod = torch.sum(predict * dist_mat)
+        norm = torch.sum(predict) ** (3/2) 
+        dist = prod/(norm + 1e-6)
+        return dist
+
+    def neg_iou_loss(self, predict, target):
+        assert predict.shape == target.shape, 'Target and Predict should have same shape'
+        dims = tuple(range(predict.ndimension())[1:])
+        intersect = (predict * target).sum(dims)
+        union = (predict + target - predict * target).sum(dims) + 1e-6
+        return 1. - (intersect / union).sum() / intersect.nelement()
+
+    def dsr_mc_loss(self, predict, target, dist_mat, loss_type='DistM', silhouette=False):
+        if loss_type == 'DistM':
+            return self.distance_transform_loss(predict[:3], dist_mat)
+        elif loss_type == 'nIOU':
+            predict = predict[3] if silhouette else predict[:3].mean(0)
+            return self.neg_iou_loss(predict, target[0])
+        else:
+            logger.warning(f'Not a valid DSR_MC Loss - use DistM/nIOU')
+            return 0
+
+    def sr_losses(self, 
+                  gt_batch,                                     
+                  render,                                    # b x 3
+                  dsr_mc_dist_mat,  # minimal-clothing        b 224 224 3
+                  dsr_c_img_label,  # clothing                b 224 224
+                  dsr_mc_img_label, # minimal-clothing        b 224 224 3
+                  valid_labels_dsr_mc,                      # list of lenth b
+                  valid_labels_dsr_c,                       # list of lenth b
+                  dsr_c_class_weight,                       # B x 8
+                  start_dsr                                 # bool
+                  ):
+        
+        batch_size = dsr_mc_dist_mat.shape[0]
+        loss_dsr_mc = torch.zeros(batch_size, device=render.device)
+        loss_dsr_c = torch.zeros(batch_size, device=render.device)
+        dsr_c_img_label = dsr_c_img_label.long().squeeze(1)
+
+        for idx in range(batch_size):
+            if len(valid_labels_dsr_mc[idx]) == 0:
+                continue
+            
+            cur_dsr_mc_dist_mat = dsr_mc_dist_mat[None,idx] # 
+            cur_dsr_c_img_label = dsr_c_img_label[None,idx]
+            cur_dsr_mc_img_label = dsr_mc_img_label[idx]
+            cur_dsr_c_class_weight = dsr_c_class_weight[idx]
+
+
+            rend_dim = int(render.shape[0]/batch_size)
+            start_index = rend_dim * idx
+            cur_rend_out = render[start_index:start_index+rend_dim]
+            cur_rend_out = cur_rend_out.permute([0,3,1,2])
+
+
+            # SR-Pixel
+            rend_dsr_mc = cur_rend_out[0]
+            loss_dsr_mc[idx] = self.dsr_mc_loss(
+                rend_dsr_mc, #predict
+                cur_dsr_mc_img_label, #target
+                cur_dsr_mc_dist_mat, #dist_mat
+                'nIOU', #DistM or nIOU
+                'False')
+
+            # SR-Vertex
+            if rend_dim > 1:
+                self.criterion_dsr_c.weight = cur_dsr_c_class_weight
+                rend_dsr_c = cur_rend_out[1:,:3].mean(1).unsqueeze(0)
+                loss_dsr_c[idx] = self.criterion_dsr_c(rend_dsr_c, cur_dsr_c_img_label)
+
+            if torch.isnan(loss_dsr_c[idx]) or torch.isnan(loss_dsr_mc[idx]) or \
+               torch.isinf(loss_dsr_c[idx]) or torch.isinf(loss_dsr_mc[idx]):
+                imgs, imgname, grphs = gt_batch['img'], gt_batch['imgname'], gt_batch['grph']
+                debug_rend_out(imgs, grphs, cur_rend_out, cur_dsr_mc_img_label, \
+                               cur_dsr_mc_dist_mat, idx)
+                logger.warning(f'loss is nan for {imgname[idx]}')
+                logger.warning(f'current_rend - {torch.unique(cur_rend_out)}')
+                logger.warning(f'Rend_DSR_C - {torch.unique(rend_dsr_c)}')
+                logger.warning(f'Rend_DSR_MC - {torch.unique(rend_dsr_mc)}')
+                loss_dsr_c[idx] = 0.
+                loss_dsr_mc[idx] = 0.
+
+        return loss_dsr_mc, loss_dsr_c#.mean()
+        
+        
+
+
 
     def forward(self, inputs, targets, meta_info, mode):
         #pdb.set_trace()
         
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape)
+
+        targets['grph_gt']              = F.interpolate(targets['grph_gt']             .permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+        targets['grph_dsr_mc_label']    = F.interpolate(targets['grph_dsr_mc_label']   .permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+        targets['grph_dsr_mc_dist_mat'] = F.interpolate(targets['grph_dsr_mc_dist_mat'].permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+        
+        targets['grph_dsr_c_label']     = F.interpolate(targets['grph_dsr_c_label']    .unsqueeze(1), cfg.input_body_shape) # [32 x 512 x 384]
+
+        #targets['dsr_c_class_weight']   = F.interpolate(targets['dsr_c_class_weight']  .permute([0,3,1,2]), cfg.input_body_shape)
+        #targets['valid_labels_dsr_c']   = F.interpolate(targets['valid_labels_dsr_c']  .permute([0,3,1,2]), cfg.input_body_shape)
+        #targets['valid_labels_dsr_mc']  = F.interpolate(targets['valid_labels_dsr_mc'] .permute([0,3,1,2]), cfg.input_body_shape)
+        
         batch_size = body_img.shape[0]
 
         # 1. Encoder
@@ -357,7 +463,32 @@ class Model(nn.Module):
         #print (torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1).shape)
         #print (joint_proj.shape)
         #pdb.set_trace()
-        silhouette, joint_proj = self.camera_screen(mesh_cam, torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1), joint_proj)
+
+        # DSR
+        # DSR
+        textures = targets['smpl_textures_gt']
+        textures = textures.unsqueeze(3) 
+        rend_dim = textures.shape[1]
+        # B 6890 3 - > 9B 6890 3
+        batch_vertices = torch.repeat_interleave(mesh_cam, repeats=rend_dim, dim=0) # [1152, 6890, 3]
+
+        # 1 X 13376 X 3 --> 9b X 13376 X 3
+        batch_smpl_faces = torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).expand(
+            rend_dim*batch_size, self.smpl.face.shape[0], self.smpl.face.shape[1])
+
+        # texture: B  9, 13776, 1, 3 --> 9B 13776, 1, 3
+        batch_textures=  textures.view(rend_dim*batch_size, textures.shape[2], textures.shape[3], textures.shape[4]) # [11
+        batch_textures = batch_textures.unsqueeze(2)
+        # Joint: B J 3 ---> 9B j 3
+        batch_proj_joints = torch.repeat_interleave(joint_proj, repeats=rend_dim, dim=0)
+
+        #batch_textures = TexturesAtlas(atlas=batch_textures)
+        silhouette, joint_proj = self.camera_screen(
+            batch_vertices, #mesh_cam,                                                                                       # should be 9B X 6890 X 3
+            batch_smpl_faces, #torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1),             # should be 9B X 
+            batch_proj_joints, #joint_proj
+            textures=batch_textures
+            )
         
 
 
@@ -434,13 +565,38 @@ class Model(nn.Module):
 
             # loss functions
             loss = {}
+            #start_index = 0
+            #cur_rend_out = joint_proj[start_index:start_index+rend_dim]
+            joint_proj = joint_proj[::rend_dim]
             loss['joint_proj'] = self.coord_loss(joint_proj, 
                                                  targets['joint_img'], 
                                                  meta_info['joint_trunc'])
             mask_gt = F.interpolate(targets['mask_gt'], cfg.input_body_shape, mode='nearest')
             #pdb.set_trace()
-            loss['mask'] = self.mask_loss(silhouette[...,3], mask_gt.squeeze(1))
-            loss['mask'] = self.mask_iou_loss(silhouette[...,3], mask_gt.squeeze(1))
+            #loss['mask'] = self.mask_loss(silhouette[...,3], mask_gt.squeeze(1))
+            #loss['mask'] = self.mask_iou_loss(silhouette[...,3], mask_gt.squeeze(1))
+
+
+
+            # DSR LOSS
+            # 1. get render result
+            #render_out = silhouette[...,3]
+            
+            loss_dsr_mc, loss_dsr_c = self.sr_losses(
+                gt_batch=mask_gt,
+                render=silhouette,
+                dsr_mc_dist_mat =  targets['grph_dsr_mc_dist_mat'],  # minimal-clothing        b 224 224 3
+                dsr_c_img_label = targets['grph_dsr_c_label'],  # clothing                b 224 224
+                dsr_mc_img_label = targets['grph_dsr_mc_label'], # minimal-clothing        b 224 224 3
+                valid_labels_dsr_mc = targets['valid_labels_dsr_mc'],                      # list of lenth b
+                valid_labels_dsr_c = targets['valid_labels_dsr_c'],                       # list of lenth b
+                dsr_c_class_weight = targets['dsr_c_class_weight'],                       # B x 8
+                start_dsr = True          
+            )
+
+            loss['loss_dsr_c'] = loss_dsr_c
+            loss['loss_dsr_mc'] = loss_dsr_mc
+
 
             #print (loss['joint_proj'])
             #loss['joint_img'] = self.coord_loss(joint_img, 

@@ -2,6 +2,7 @@
 #SBATCH -A berzelius-2024-331
 #SBATCH --gpus=1
 #SBATCH -t 3-00:00:00
+#SBATCH -C "fat"
 #SBATCH -e train_smil.e
 #SBATCH -o train_smil.o
 
@@ -13,11 +14,12 @@ export PYTHONPATH=/home/x_hensh/.local/lib/python3.10/site-packages:$PPYTHONPATH
 python ../main/train.py \
             --gpu 0 \
             --lr 1e-4 \
-            --exp_name output/train_smil/ \
+            --exp_name output/train_kpt1dsr1_p3drender/ \
             --end_epoch 140 \
             --pretrained_model_path ../pretrained_models/osx_l.pth.tar \
             --ima_benchmark \
             --train_batch_size 16 \
             --continue \
             --decoder_setting normal \
-            --model_type smil_h
+            --model_type smil_h \
+            --continue 

@@ -3,8 +3,8 @@ import torch
 import pdb
 from pytorch3d.structures import Meshes
 from pytorch3d.renderer import (
-    OpenGLPerspectiveCameras, SoftSilhouetteShader,
-    RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,PerspectiveCameras, HardPhongShader,PointLights,TexturesVertex
+    OpenGLPerspectiveCameras, SoftSilhouetteShader, TexturesAtlas, 
+    RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,PerspectiveCameras, HardPhongShader,PointLights,TexturesVertex, TexturesUV
 )
 
 
@@ -101,16 +101,20 @@ class base_renderer():
         color_image = self.color_render(torch_mesh).permute(0, 3, 1, 2)[:, :3, :, :]
         return color_image
     
-    def __call__(self, vertices, faces, points = None):
+    def __call__(self, vertices, faces, points = None, textures = None):
         ''' Right now only render silhouettes
             Input:
             vertices: BN * V * 3
             faces: BN * F * 3
             points: BN * V * 3
         '''
-        #pdb.set_trace()
+        #textures = TexturesVertex(verts_features=textures.to(self.device))
+        if textures is not None:
+            textures = TexturesAtlas(atlas=textures.to(self.device))
+        
         torch_mesh = Meshes(verts=vertices.to(self.device),
-                            faces=faces.to(self.device))
+                            faces=faces.to(self.device),
+                            textures=textures)
         
         silhouette = self.silhouette_renderer(meshes_world=torch_mesh.clone(),
                                               R=self.R, T=self.T)#[..., -1]
