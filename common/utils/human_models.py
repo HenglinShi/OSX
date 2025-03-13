@@ -5,7 +5,7 @@ from config import cfg
 from common.utils.smplx import smplx
 import pickle
 import pdb
-from smplx.joint_names import SMPLH_JOINT_NAMES, JOINT_NAMES
+from common.utils.smplx.smplx.joint_names import SMPLH_JOINT_NAMES, JOINT_NAMES
 class SMPLX(object):
     def __init__(self):
         self.layer_arg = {'create_global_orient': False, 'create_body_pose': False, 'create_left_hand_pose': False, 'create_right_hand_pose': False, 'create_jaw_pose': False, 'create_leye_pose': False, 'create_reye_pose': False, 'create_betas': False, 'create_expression': False, 'create_transl': False}

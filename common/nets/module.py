@@ -178,9 +178,9 @@ class HandRoI(nn.Module):
                 self.deconv.append(make_deconv_layers([feat_dim, feat_dim//2, feat_dim//4, feat_dim//8]))
 
     def forward(self, img_feat, lhand_bbox, rhand_bbox):
-        lhand_bbox = torch.cat((torch.arange(lhand_bbox.shape[0]).float().cuda()[:, None], lhand_bbox),
+        lhand_bbox = torch.cat((torch.arange(lhand_bbox.shape[0]).to(lhand_bbox.device).float()[:, None], lhand_bbox),
                                1)  # batch_idx, xmin, ymin, xmax, ymax
-        rhand_bbox = torch.cat((torch.arange(rhand_bbox.shape[0]).float().cuda()[:, None], rhand_bbox),
+        rhand_bbox = torch.cat((torch.arange(rhand_bbox.shape[0]).to(rhand_bbox.device).float()[:, None], rhand_bbox),
                                1)  # batch_idx, xmin, ymin, xmax, ymax
         hand_img_feats = []
         for i, deconv in enumerate(self.deconv):
@@ -226,7 +226,7 @@ class FaceRoI(nn.Module):
                 self.deconv.append(make_deconv_layers([feat_dim, feat_dim//2, feat_dim//4, feat_dim//8]))
 
     def forward(self, img_feat, face_bbox):
-        face_bbox = torch.cat((torch.arange(face_bbox.shape[0]).float().cuda()[:, None], face_bbox),
+        face_bbox = torch.cat((torch.arange(face_bbox.shape[0]).to(face_bbox.device).float()[:, None], face_bbox),
                                1)  # batch_idx, xmin, ymin, xmax, ymax
         face_img_feats = []
         for i, deconv in enumerate(self.deconv):

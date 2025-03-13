@@ -337,3 +337,33 @@ Please do not modify PYTHONPATH while using this module.
 [92m02-03 19:30:38[0m Epoch 139/140 itr 99/271: lr: 1.01631e-06 speed: 0.59(0.58s r0.01)s/itr 0.04h/epoch loss_joint_proj: 0.0681
 [92m02-03 19:31:36[0m Epoch 139/140 itr 199/271: lr: 1.00748e-06 speed: 0.59(0.58s r0.01)s/itr 0.04h/epoch loss_joint_proj: 0.0616
 [92m02-03 19:32:26[0m Write snapshot into /proj/berzelius-2024-331/users/x_hensh/git/OSX/main/../output/train_smil/model_dump/snapshot_139.pth.tar
+[92m03-07 13:04:46[0m Epoch 126/140 itr 99/271: lr: 3.45574e-06 speed: 1.65(1.62s r0.03)s/itr 0.12h/epoch loss_joint_proj: 3.3116 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9299
+[92m03-07 13:07:32[0m Epoch 126/140 itr 199/271: lr: 3.32986e-06 speed: 1.65(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 10.0927 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9305
+[92m03-07 13:12:23[0m Epoch 127/140 itr 99/271: lr: 3.12328e-06 speed: 1.65(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 5.4578 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9125
+[92m03-07 13:15:09[0m Epoch 127/140 itr 199/271: lr: 3.00615e-06 speed: 1.65(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.4005 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9256
+[92m03-07 13:20:00[0m Epoch 128/140 itr 99/271: lr: 2.8145e-06 speed: 1.65(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 6.0579 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9323
+[92m03-07 13:22:46[0m Epoch 128/140 itr 199/271: lr: 2.70618e-06 speed: 1.65(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 6.0220 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9067
+[92m03-07 13:27:38[0m Epoch 129/140 itr 99/271: lr: 2.52955e-06 speed: 1.65(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 7.1472 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9316
+[92m03-07 13:30:24[0m Epoch 129/140 itr 199/271: lr: 2.43009e-06 speed: 1.65(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.3415 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9153
+[92m03-07 13:35:15[0m Epoch 130/140 itr 99/271: lr: 2.26858e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 3.5815 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9025
+[92m03-07 13:38:01[0m Epoch 130/140 itr 199/271: lr: 2.17803e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.9750 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9179
+[92m03-07 13:40:05[0m Write snapshot into /proj/berzelius-2024-331/users/x_hensh/git/OSX/main/../output/train_kpt1dsr1_p3drender/model_dump/snapshot_130.pth.tar
+[92m03-07 13:43:00[0m Epoch 131/140 itr 99/271: lr: 2.03172e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.6786 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9276
+[92m03-07 13:45:47[0m Epoch 131/140 itr 199/271: lr: 1.95013e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 8.9154 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9115
+[92m03-07 13:50:37[0m Epoch 132/140 itr 99/271: lr: 1.81908e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.2843 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9187
+[92m03-07 13:53:23[0m Epoch 132/140 itr 199/271: lr: 1.74649e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 6.8041 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9266
+[92m03-07 13:58:13[0m Epoch 133/140 itr 99/271: lr: 1.63077e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 8.9846 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9243
+[92m03-07 14:00:59[0m Epoch 133/140 itr 199/271: lr: 1.56722e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 5.6066 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9202
+[92m03-07 14:05:50[0m Epoch 134/140 itr 99/271: lr: 1.46689e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.6617 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9276
+[92m03-07 14:08:36[0m Epoch 134/140 itr 199/271: lr: 1.41241e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 5.3260 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9400
+[92m03-07 14:13:27[0m Epoch 135/140 itr 99/271: lr: 1.32751e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 3.2696 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9225
+[92m03-07 14:16:12[0m Epoch 135/140 itr 199/271: lr: 1.28213e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 6.2696 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9452
+[92m03-07 14:21:02[0m Epoch 136/140 itr 99/271: lr: 1.21272e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 7.1827 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9379
+[92m03-07 14:23:48[0m Epoch 136/140 itr 199/271: lr: 1.17645e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 5.8818 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9299
+[92m03-07 14:28:38[0m Epoch 137/140 itr 99/271: lr: 1.12256e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.8125 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9101
+[92m03-07 14:31:24[0m Epoch 137/140 itr 199/271: lr: 1.09543e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 6.6936 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9129
+[92m03-07 14:36:15[0m Epoch 138/140 itr 99/271: lr: 1.05708e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 6.1494 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9184
+[92m03-07 14:39:02[0m Epoch 138/140 itr 199/271: lr: 1.03909e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 8.8362 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9346
+[92m03-07 14:43:53[0m Epoch 139/140 itr 99/271: lr: 1.01631e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 7.3970 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9128
+[92m03-07 14:46:39[0m Epoch 139/140 itr 199/271: lr: 1.00748e-06 speed: 1.66(1.63s r0.03)s/itr 0.12h/epoch loss_joint_proj: 4.6485 loss_loss_dsr_c: 2.0794 loss_loss_dsr_mc: 0.9378
+[92m03-07 14:48:43[0m Write snapshot into /proj/berzelius-2024-331/users/x_hensh/git/OSX/main/../output/train_kpt1dsr1_p3drender/model_dump/snapshot_139.pth.tar

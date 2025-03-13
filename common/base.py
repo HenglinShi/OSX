@@ -7,6 +7,8 @@ import torchvision.transforms as transforms
 from common.timer import Timer
 from common.logger import colorlogger
 from torch.nn.parallel.data_parallel import DataParallel
+from torch.nn.modules import Module
+import pdb
 from config import cfg
 if cfg.decoder_setting == 'normal':
     from OSX import get_model
@@ -52,11 +54,19 @@ class Trainer(Base):
     def get_optimizer(self, model):
         normal_param = []
         special_param = []
-        for module in model.module.special_trainable_modules:
-            special_param += list(module.parameters())
-            # print(module)
-        for module in model.module.trainable_modules:
-            normal_param += list(module.parameters())
+        if isinstance(model, DataParallel):
+            for module in model.module.special_trainable_modules:
+                special_param += list(module.parameters())
+                # print(module)
+            for module in model.module.trainable_modules:
+                normal_param += list(module.parameters())
+        elif isinstance(model, Module):
+            for module in model.special_trainable_modules:
+                special_param += list(module.parameters())
+                # print(module)
+            for module in model.trainable_modules:
+                normal_param += list(module.parameters())
+
         optim_params = [
             {  # add normal params first
                 'params': normal_param,
@@ -87,7 +97,7 @@ class Trainer(Base):
     def load_model(self, model, optimizer):
         if cfg.pretrained_model_path is not None:
             ckpt_path = cfg.pretrained_model_path
-            ckpt = torch.load(ckpt_path)
+            ckpt = torch.load(ckpt_path, map_location='cpu')
             start_epoch = 0
             model.load_state_dict(ckpt['network'], strict=False)
             self.logger.info('Load checkpoint from {}'.format(ckpt_path))
@@ -128,15 +138,24 @@ class Trainer(Base):
             trainset_loader = MultipleDatasets(trainset3d_loader + trainset2d_loader, make_same_len=False)
 
         self.itr_per_epoch = math.ceil(len(trainset_loader) / cfg.num_gpus / cfg.train_batch_size)
-        self.batch_generator = DataLoader(dataset=trainset_loader, batch_size=cfg.num_gpus * cfg.train_batch_size,
+        if cfg.device == 'cpu':
+            self.batch_generator = DataLoader(dataset=trainset_loader, batch_size=cfg.train_batch_size, shuffle=True, num_workers=cfg.num_thread, pin_memory=False, drop_last=True)
+        elif cfg.device == 'cuda':
+            self.batch_generator = DataLoader(dataset=trainset_loader, batch_size=cfg.num_gpus * cfg.train_batch_size,
                                           shuffle=True, num_workers=cfg.num_thread, pin_memory=True, drop_last=True)
+        else:
+            raise NotImplementedError()
 
     from common.utils.human_models import smpl_x
     def _make_model(self, smpl=smpl_x):
         # prepare network
         self.logger.info("Creating graph and optimizer...")
         model = get_model(smpl, 'train')
-        model = DataParallel(model).cuda()
+        if cfg.device == 'cuda':
+            model = DataParallel(model).cuda()
+        elif cfg.device == 'cpu':
+            model = model.to(cfg.device)
+
         optimizer = self.get_optimizer(model)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, cfg.end_epoch * self.itr_per_epoch,
                                                                eta_min=1e-6)

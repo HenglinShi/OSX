@@ -70,14 +70,19 @@ class Config:
     num_noise_sample = 0
     encoder_config_file = os.path.join(root_dir, 'main/transformer_utils/configs/osx/encoder/body_encoder_large.py')
 
-    def set_args(self, gpu_ids, lr=1e-4, continue_train=False):
-        self.gpu_ids = gpu_ids
-        self.num_gpus = len(self.gpu_ids.split(','))
+    def set_args(self, device, gpu_ids=None, lr=1e-4, continue_train=False, debug=False):
         self.lr = float(lr)
-        self.debug = True
+        self.debug = debug
         self.continue_train = continue_train
-        os.environ["CUDA_VISIBLE_DEVICES"] = self.gpu_ids
-        print('>>> Using GPU: {}'.format(self.gpu_ids))
+        
+        self.device = device
+        self.gpu_ids = gpu_ids
+        if self.device == 'gpu':
+            self.num_gpus = len(self.gpu_ids.split(','))
+            os.environ["CUDA_VISIBLE_DEVICES"] = self.gpu_ids
+            print('>>> Using GPU: {}'.format(self.gpu_ids))
+        elif self.device == 'cpu':
+            print('>>> Using CPU')
 
     def set_additional_args(self, **kwargs):
         names = self.__dict__

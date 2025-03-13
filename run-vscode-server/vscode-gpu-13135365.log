@@ -1,0 +1,7 @@
+[3606982] Mar 07 13:03:17 Not backgrounding
+[3621712] Mar 07 13:04:05 Child connection from 10.81.254.11:50994
+[3621712] Mar 07 13:04:05 Pubkey auth succeeded for 'x_hensh' with ssh-ed25519 key SHA256:pRcYmY8iT/LJ7m4liIWr4TbuYiotaxWsoKJBrIcMlaU from 10.81.254.11:50994
+[3621712] Mar 07 13:04:54 Exit (x_hensh) from <10.81.254.11:50994>: Exited normally
+[3633436] Mar 07 13:05:11 Child connection from 10.81.254.11:59866
+[3633436] Mar 07 13:05:11 Pubkey auth succeeded for 'x_hensh' with ssh-ed25519 key SHA256:pRcYmY8iT/LJ7m4liIWr4TbuYiotaxWsoKJBrIcMlaU from 10.81.254.11:59866
+slurmstepd: error: *** JOB 13135365 ON node087 CANCELLED AT 2025-03-07T14:11:07 ***

@@ -1,0 +1,50 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${fileDirname}",
+            "env": {
+            //    "CUDA_VISIBLE_DEVICES": ""
+            },
+            "args": [
+                "--devices", "cpu", //"gpu:0",
+                //"--lr", "1e-4",
+                // "--img_path", "input.png",
+                "--exp_name", "output/train_test/",
+                "--end_epoch", "140",
+                "--pretrained_model_path", "../output/train_smil/model_dump/snapshot_90.pth.tar",
+                //"--testset", "IMA",
+                "--ima_benchmark",
+                //"--test_batch_size",  "32",
+                "--train_batch_size", "12",
+                "--decoder_setting", "normal",
+                //"--output_folder", "../output/smil_h",
+                //"--output_folder", "../output/test_new_render",
+                "--model_type", "smil_h",
+                "--num_thread", "0",
+                "--debug", "True",
+                "--continue"
+            ]
+        }
+    ]
+}
+
+// annotation jason structure
+// [annotations]
+//      ['id', 'image_id', 'smplx_joints_2d_path', 'smplx_joints_3d_path', 
+//       'smplx_verts_path', 'smplx_param_path', 'smpl_joints_2d_path', 
+//       'smpl_joints_3d_path', 'smpl_verts_path', 'smpl_param_path', 'gender', 
+//       'kid', 'occlusion', 'is_valid', 'age', 'ethnicity', 'bbox', 'lhand_bbox', 'rhand_bbox', 'face_bbox']
+
+// [images]
+//      ['id', 'file_name_3840x2160', 'file_name_1280x720']
+
+//python demo.py --gpu 0 --exp_name out/train_setting2/ --pretrained_model_path  ../pretrained_models/osx_l.pth.tar --decoder_setting normal --model_type smplx

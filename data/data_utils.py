@@ -8,7 +8,8 @@ from loguru import logger
 from data import constants
 from scipy import ndimage
 import pdb
-
+import matplotlib.pyplot as plt
+from config import cfg
 
 def get_distance_matrix(target):
     dist_mat = ndimage.distance_transform_edt(1-target)
@@ -41,9 +42,9 @@ def remove_background_from_keypoints(img, keypoints):
     margin = 30
     keypoints_valid = keypoints#[0][np.where(keypoints[0,:,2] > 0.3)]
     xmin, xmax = int(max(keypoints_valid[:,0].min()-margin, 0)), \
-                 int(min(keypoints_valid[:,0].max()+margin, img.shape[0]))
+                 int(min(keypoints_valid[:,0].max()+margin, img.shape[1]))
     ymin, ymax = int(max(keypoints_valid[:,1].min()-margin, 0)), \
-                 int(min(keypoints_valid[:,1].max()+margin, img.shape[1]))
+                 int(min(keypoints_valid[:,1].max()+margin, img.shape[0]))
     img[0:ymin], img[ymax:] = 0.0, 0.0
     img[:,0:xmin], img[:,xmax:] = 0.0, 0.0
     return img

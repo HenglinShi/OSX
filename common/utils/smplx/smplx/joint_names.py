@@ -163,8 +163,6 @@ JOINT_NAMES = [
 ]
 
 
-
-
 SMPLH_JOINT_NAMES = [
     "pelvis",           # 0
     "left_hip",         # 1

@@ -20,6 +20,9 @@ import matplotlib.pyplot as plt
 from pytorch3d.renderer import TexturesAtlas
 from scipy import ndimage
 from loguru import logger
+import matplotlib.pyplot as plt 
+from common.utils.vis import vis_keypoints, vis_mesh, save_obj, render_mesh, vis_keypoints_error
+
 class Model(nn.Module):
     def __init__(self, encoder, body_position_net, body_rotation_net, box_net, hand_position_net, hand_roi_net, hand_decoder,
                  hand_rotation_net, face_position_net, face_roi_net, face_decoder, face_regressor, smpl):
@@ -43,7 +46,7 @@ class Model(nn.Module):
         self.face_regressor = face_regressor
 
         self.smpl = smpl
-        self.smpl_layer = copy.deepcopy(self.smpl.layer['neutral']).cuda()
+        self.smpl_layer = copy.deepcopy(self.smpl.layer['neutral']).to(cfg.device)
 
         self.coord_loss = CoordLoss()
         self.param_loss = ParamLoss()
@@ -73,39 +76,25 @@ class Model(nn.Module):
         ]
 
 
-
-        #pdb.set_trace()
-
         self.camera_screen = base_renderer(
             size=cfg.input_body_shape,
             focal=focal,
             principal_point=princpt,
-            device='cuda',
+            device=cfg.device,
             colorRender=True)
-
-
-
-
-
-
-
-
-
-
-
 
 
 
     def get_camera_trans(self, cam_param):
         # camera translation
         if cfg.model_type == 'smil_h':
-            t_xy = cam_param[:, :2] + torch.Tensor([0.1, -1]).cuda()
+            t_xy = cam_param[:, :2] + torch.Tensor([0.1, -1]).to(cam_param.device)#.cuda()
             #print (t_xy)
         else: 
             t_xy = cam_param[:, :2]
         gamma = torch.sigmoid(cam_param[:, 2])  # apply sigmoid to make it positive
         k_value = torch.FloatTensor([math.sqrt(cfg.focal[0] * cfg.focal[1] * cfg.camera_3d_size * cfg.camera_3d_size / (
-                cfg.input_body_shape[0] * cfg.input_body_shape[1]))]).cuda().view(-1)
+                cfg.input_body_shape[0] * cfg.input_body_shape[1]))]).to(cam_param.device).view(-1)
         t_z = k_value * gamma
         cam_trans = torch.cat((t_xy, t_z[:, None]), 1)
         if cfg.model_type == 'smil_h':
@@ -115,7 +104,7 @@ class Model(nn.Module):
 
     def get_coord(self, root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode):
         batch_size = root_pose.shape[0]
-        zero_pose = torch.zeros((1, 3)).float().cuda().repeat(batch_size, 1)  # eye poses
+        zero_pose = torch.zeros((1, 3)).float().repeat(batch_size, 1)  # eye poses
         output = self.smpl_layer(betas=shape, body_pose=body_pose, global_orient=root_pose, right_hand_pose=rhand_pose,
                                   left_hand_pose=lhand_pose, jaw_pose=jaw_pose, leye_pose=zero_pose,
                                   reye_pose=zero_pose, expression=expr)
@@ -172,7 +161,7 @@ class Model(nn.Module):
 
     def get_coord_hshi(self, root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode):
         batch_size = root_pose.shape[0]
-        zero_pose = torch.zeros((1, 3)).float().cuda().repeat(batch_size, 1)  # eye poses
+        zero_pose = torch.zeros((1, 3)).float().repeat(batch_size, 1)  # eye poses
         output = self.smpl_layer(betas=shape, body_pose=body_pose, global_orient=root_pose, right_hand_pose=rhand_pose,
                                   left_hand_pose=lhand_pose, jaw_pose=jaw_pose, leye_pose=zero_pose,
                                   reye_pose=zero_pose, expression=expr)
@@ -319,18 +308,21 @@ class Model(nn.Module):
                   gt_batch,                                     
                   render,                                    # b x 3
                   dsr_mc_dist_mat,  # minimal-clothing        b 224 224 3
-                  dsr_c_img_label,  # clothing                b 224 224
+                  dsr_c_img_label,  # clothing                b 224 224 1
                   dsr_mc_img_label, # minimal-clothing        b 224 224 3
                   valid_labels_dsr_mc,                      # list of lenth b
                   valid_labels_dsr_c,                       # list of lenth b
                   dsr_c_class_weight,                       # B x 8
-                  start_dsr                                 # bool
                   ):
         
         batch_size = dsr_mc_dist_mat.shape[0]
         loss_dsr_mc = torch.zeros(batch_size, device=render.device)
         loss_dsr_c = torch.zeros(batch_size, device=render.device)
-        dsr_c_img_label = dsr_c_img_label.long().squeeze(1)
+        
+        dsr_c_img_label = dsr_c_img_label.long().squeeze(-1)
+        dsr_mc_dist_mat = dsr_mc_dist_mat.permute(0,3,1,2)
+        dsr_mc_img_label = dsr_mc_img_label.permute(0,3,1,2)
+
 
         for idx in range(batch_size):
             if len(valid_labels_dsr_mc[idx]) == 0:
@@ -385,16 +377,18 @@ class Model(nn.Module):
         #pdb.set_trace()
         
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape)
+        targets['joint_img'][:, :, 0] = targets['joint_img'][:, :, 0] / cfg.input_img_shape[1] * cfg.input_body_shape[1] # # input shape to mesh shape
+        targets['joint_img'][:, :, 1] = targets['joint_img'][:, :, 1] / cfg.input_img_shape[0] * cfg.input_body_shape[0] # input shape to mesh shape
 
-        targets['grph_gt']              = F.interpolate(targets['grph_gt']             .permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
-        targets['grph_dsr_mc_label']    = F.interpolate(targets['grph_dsr_mc_label']   .permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
-        targets['grph_dsr_mc_dist_mat'] = F.interpolate(targets['grph_dsr_mc_dist_mat'].permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+        #targets['grph_gt']              = F.interpolate(targets['grph_gt']             .permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+        targets['grph_dsr_mc_label']    = F.interpolate(targets['grph_dsr_mc_label']   .permute([0,3,1,2]), cfg.input_body_shape).permute([0,2,3,1])    # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+        targets['grph_dsr_mc_dist_mat'] = F.interpolate(targets['grph_dsr_mc_dist_mat'].permute([0,3,1,2]), cfg.input_body_shape).permute([0,2,3,1])    # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]        
+        targets['grph_dsr_c_label']     = F.interpolate(targets['grph_dsr_c_label']    .unsqueeze(1),       cfg.input_body_shape).permute([0,2,3,1]) # [32 x 512 x 384]
         
-        targets['grph_dsr_c_label']     = F.interpolate(targets['grph_dsr_c_label']    .unsqueeze(1), cfg.input_body_shape) # [32 x 512 x 384]
+        targets['mask_gt']    =           F.interpolate(targets['mask_gt'],                                 cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+        targets['grph_raw']   =           F.interpolate(targets['grph_raw']            .permute([0,3,1,2]), cfg.input_body_shape).permute([0,2,3,1]) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
 
-        #targets['dsr_c_class_weight']   = F.interpolate(targets['dsr_c_class_weight']  .permute([0,3,1,2]), cfg.input_body_shape)
-        #targets['valid_labels_dsr_c']   = F.interpolate(targets['valid_labels_dsr_c']  .permute([0,3,1,2]), cfg.input_body_shape)
-        #targets['valid_labels_dsr_mc']  = F.interpolate(targets['valid_labels_dsr_mc'] .permute([0,3,1,2]), cfg.input_body_shape)
+
         
         batch_size = body_img.shape[0]
 
@@ -458,14 +452,7 @@ class Model(nn.Module):
         pose = torch.cat((root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose), 1)
         joint_img = torch.cat((body_joint_img, lhand_joint_img, rhand_joint_img), 1)
 
-        #pdb.set_trace()
-        #print (mesh_cam.shape)
-        #print (torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1).shape)
-        #print (joint_proj.shape)
-        #pdb.set_trace()
 
-        # DSR
-        # DSR
         textures = targets['smpl_textures_gt']
         textures = textures.unsqueeze(3) 
         rend_dim = textures.shape[1]
@@ -490,6 +477,80 @@ class Model(nn.Module):
             textures=batch_textures
             )
         
+        joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
+
+        if cfg.debug:
+
+            vis_ind = -1
+            start_index = rend_dim * vis_ind
+
+            ktp_gt_debug = targets['joint_img'][vis_ind,...].cpu().numpy()
+            kpt_pred_debug = joint_proj[start_index,...].detach().cpu().numpy()
+
+            image_debug = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
+            mask_debug = np.repeat(np.ascontiguousarray(targets['mask_gt'][vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8), 3, axis=2)
+            grph_debug = np.ascontiguousarray(targets['grph_raw'][vis_ind, ...].cpu().numpy(), dtype=np.uint8)
+            grph_dsr_c_label_debug = (10 * targets['grph_dsr_c_label'][vis_ind, ...].cpu().numpy()).astype('uint8')
+            grph_dsr_mc_label_debug = (255 * targets['grph_dsr_mc_label'][vis_ind, ...].cpu().numpy()).astype('uint8')
+            grph_dsr_mc_dist_debug = (targets['grph_dsr_mc_dist_mat'][vis_ind, ...].cpu().numpy()).astype('uint8')
+
+            rendered = torch.multiply(
+                body_img[vis_ind,...].permute([1,2,0]), 
+                1 - silhouette[start_index, :, :, 3].unsqueeze(-1)) + \
+            silhouette[start_index, :, :, 3].unsqueeze(-1)
+            rendered = np.ascontiguousarray(rendered.detach().cpu().numpy() * 255, dtype=np.uint8)
+
+            
+            fig, axs = plt.subplots(3, 7)
+            axs[0, 0].imshow(image_debug)
+            axs[0, 1].imshow(mask_debug)
+            axs[0, 2].imshow(grph_debug)
+            axs[0, 3].imshow(grph_dsr_c_label_debug)
+            axs[0, 4].imshow(grph_dsr_mc_label_debug)
+            axs[0, 5].imshow(grph_dsr_mc_dist_debug)
+            axs[0, 6].imshow(rendered)
+            
+            img_kpt_gt           = vis_keypoints(image_debug, ktp_gt_debug.astype(np.int32))
+            mask_kpt_gt          = vis_keypoints(mask_debug, ktp_gt_debug.astype(np.int32))
+            grph_kpt_gt          = vis_keypoints(grph_debug, ktp_gt_debug.astype(np.int32))
+            c_label_kpt_gt       = vis_keypoints(grph_dsr_c_label_debug, ktp_gt_debug.astype(np.int32))
+            mc_label_kpt_gt      = vis_keypoints(grph_dsr_mc_label_debug, ktp_gt_debug.astype(np.int32))
+            mc_dist_kpt_gt       = vis_keypoints(grph_dsr_mc_dist_debug, ktp_gt_debug.astype(np.int32))
+            render_kpt_gt        = vis_keypoints(rendered, ktp_gt_debug.astype(np.int32))
+
+            axs[1, 0].imshow(img_kpt_gt)
+            axs[1, 1].imshow(mask_kpt_gt)
+            axs[1, 2].imshow(grph_kpt_gt)
+            axs[1, 3].imshow(c_label_kpt_gt)
+            axs[1, 4].imshow(mc_label_kpt_gt)
+            axs[1, 5].imshow(mc_dist_kpt_gt)
+            axs[1, 6].imshow(render_kpt_gt)
+
+            img_kpt_pred           = vis_keypoints(image_debug, kpt_pred_debug.astype(np.int32))
+            mask_kpt_pred          = vis_keypoints(mask_debug, kpt_pred_debug.astype(np.int32))
+            grph_kpt_pred          = vis_keypoints(grph_debug, kpt_pred_debug.astype(np.int32))
+            c_label_kpt_pred       = vis_keypoints(grph_dsr_c_label_debug, kpt_pred_debug.astype(np.int32))
+            mc_label_kpt_pred      = vis_keypoints(grph_dsr_mc_label_debug, kpt_pred_debug.astype(np.int32))
+            mc_dist_kpt_pred       = vis_keypoints(grph_dsr_mc_dist_debug, kpt_pred_debug.astype(np.int32))
+            render_kpt_pred        = vis_keypoints(rendered, kpt_pred_debug.astype(np.int32))
+
+            axs[2, 0].imshow(img_kpt_pred)
+            axs[2, 1].imshow(mask_kpt_pred)
+            axs[2, 2].imshow(grph_kpt_pred)
+            axs[2, 3].imshow(c_label_kpt_pred)
+            axs[2, 4].imshow(mc_label_kpt_pred)
+            axs[2, 5].imshow(mc_dist_kpt_pred)
+            axs[2, 6].imshow(render_kpt_pred)
+            
+            fig.set_figheight(15)
+            fig.set_figwidth(30)
+            fig.subplots_adjust(wspace=0.2, hspace=0.2)
+            plt.show()
+
+
+
+
+                
 
 
             
@@ -497,82 +558,16 @@ class Model(nn.Module):
             mesh_pseudo_gt = self.generate_mesh_gt(targets, mode)
 
         if mode == 'train':
-
-            joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
-            
-            if cfg.debug:
-                from common.utils.vis import vis_keypoints, vis_mesh, save_obj, render_mesh, vis_keypoints_error
-
-                vis_ind = -1
-                #pdb.set_trace()
-                #cv2.imwrite(f'debug_org_pkt.jpg', np.ascontiguousarray(inputs['kpt_image_aug'][vis_ind, ...].detach().cpu().numpy()[:, :, ::-1], dtype=np.uint8))
-                
-                cv2.imwrite(f'debug_org_kpt_aug.jpg', 
-                            np.ascontiguousarray(inputs['kpt_image_aug'][vis_ind, ...].detach().cpu().numpy()[:, :, ::-1], dtype=np.uint8))
-                
-                cv2.imwrite(f'debug_mask_gt.jpg', 
-                            np.ascontiguousarray(targets['mask_gt'][vis_ind, ...].permute([1,2,0]).detach().cpu().numpy()[:, :, ::-1] * 255, dtype=np.uint8))
-
-                kpt_gt = targets['joint_img'][vis_ind, ...].cpu().numpy().copy()
-
-
-                kpt_pred_debug = joint_proj[vis_ind,...].detach().cpu().numpy()
-
-                # 
-                img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
-                img_input = vis_keypoints(img_input, kpt_gt)
-                cv2.imwrite(f'debug_kpt_gt.jpg', img_input[:, :, ::-1])
-
-
-                # See kpt render result
-
-                img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
-                img_input = vis_keypoints(img_input, kpt_pred_debug)
-                cv2.imwrite(f'debug_kpt_pred.jpg', img_input[:, :, ::-1])
-                    
-
-                    #
-                img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
-                img_input = vis_keypoints_error(img_input, kpt_pred_debug, kpt_gt)
-                cv2.imwrite(f'debug_kpt_error.jpg', img_input[:, :, ::-1])
-
-                    
-                # See mesh render result and predicted kpts
-                rendered = torch.multiply(body_img[vis_ind,...].permute([1,2,0]), 1 - silhouette[vis_ind, :, :, 3].unsqueeze(-1)) + silhouette[vis_ind, :, :, 3].unsqueeze(-1)
-                img_input = vis_keypoints(np.ascontiguousarray(rendered.detach().cpu().numpy() * 255, dtype=np.uint8), kpt_gt)
-                cv2.imwrite(f'debug_kpt_gt_rendered.jpg', img_input[:, :, ::-1])
-
-
-                rendered = torch.multiply(body_img[vis_ind,...].permute([1,2,0]), 1 - silhouette[vis_ind, :, :, 3].unsqueeze(-1)) + silhouette[vis_ind, :, :, 3].unsqueeze(-1)
-                img_input = vis_keypoints(np.ascontiguousarray(rendered.detach().cpu().numpy() * 255, dtype=np.uint8), kpt_pred_debug)
-                cv2.imwrite(f'debug_kpt_pred_rendered.jpg', img_input[:, :, ::-1])
-
-
-            
-
-
-            #img_input = render_mesh(img_input, mesh_cam[-1, ...].cpu().detach().numpy(), self.smpl.face, {'focal': focal, 'princpt': princpt})
-            img_input = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
-            img_input = render_mesh(img_input, mesh_cam[vis_ind, ...].cpu().detach().numpy(), self.smpl.face, {'focal': cfg.focal, 'princpt': cfg.princpt})
-            #pdb.set_trace()
-            for i in range(kpt_pred_debug.shape[0]):
-                if ((kpt_pred_debug[i, 0] >= 0) * (kpt_pred_debug[i, 0] < cfg.input_body_shape[1]) *
-                    (kpt_pred_debug[i, 1] >= 0) * (kpt_pred_debug[i, 1] < cfg.input_body_shape[0])):
-                    cv2.circle(img_input, 
-                               (int(kpt_pred_debug[i, 0]), int(kpt_pred_debug[i, 1])),  radius=1, color=(0, 0, 255), thickness=-1, lineType=cv2.LINE_AA)
-
-            cv2.imwrite(f'debug_kpt_pred_old_render.jpg', img_input[:, :, ::-1])
-
-            # loss functions
             loss = {}
-            #start_index = 0
-            #cur_rend_out = joint_proj[start_index:start_index+rend_dim]
-            joint_proj = joint_proj[::rend_dim]
+
+            #joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
+            joint_proj = joint_proj[::rend_dim]            
+
             loss['joint_proj'] = self.coord_loss(joint_proj, 
                                                  targets['joint_img'], 
                                                  meta_info['joint_trunc'])
-            mask_gt = F.interpolate(targets['mask_gt'], cfg.input_body_shape, mode='nearest')
-            #pdb.set_trace()
+            #mask_gt = F.interpolate(targets['mask_gt'], cfg.input_body_shape, mode='nearest')
+            
             #loss['mask'] = self.mask_loss(silhouette[...,3], mask_gt.squeeze(1))
             #loss['mask'] = self.mask_iou_loss(silhouette[...,3], mask_gt.squeeze(1))
 
@@ -583,15 +578,14 @@ class Model(nn.Module):
             #render_out = silhouette[...,3]
             
             loss_dsr_mc, loss_dsr_c = self.sr_losses(
-                gt_batch=mask_gt,
+                gt_batch=inputs,
                 render=silhouette,
-                dsr_mc_dist_mat =  targets['grph_dsr_mc_dist_mat'],  # minimal-clothing        b 224 224 3
-                dsr_c_img_label = targets['grph_dsr_c_label'],  # clothing                b 224 224
-                dsr_mc_img_label = targets['grph_dsr_mc_label'], # minimal-clothing        b 224 224 3
+                dsr_mc_dist_mat     = targets['grph_dsr_mc_dist_mat'],  # minimal-clothing        b 224 224 3
+                dsr_c_img_label     = targets['grph_dsr_c_label'],  # clothing                b 224 224
+                dsr_mc_img_label    = targets['grph_dsr_mc_label'], # minimal-clothing        b 224 224 3
                 valid_labels_dsr_mc = targets['valid_labels_dsr_mc'],                      # list of lenth b
-                valid_labels_dsr_c = targets['valid_labels_dsr_c'],                       # list of lenth b
-                dsr_c_class_weight = targets['dsr_c_class_weight'],                       # B x 8
-                start_dsr = True          
+                valid_labels_dsr_c  = targets['valid_labels_dsr_c'],                       # list of lenth b
+                dsr_c_class_weight  = targets['dsr_c_class_weight'],                       # B x 8
             )
 
             loss['loss_dsr_c'] = loss_dsr_c

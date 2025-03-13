@@ -18,7 +18,7 @@ from data.data_utils import convert_grph_to_labels, convert_grph_to_binary_mask
 from data.data_utils import get_dsr_mc_probPrior, get_dsr_c_probPrior
 from data.data_utils import convert_fixed_length_vector, get_distance_matrix
 from data import constants
-
+from common.utils.vis import vis_keypoints, vis_mesh, save_obj, render_mesh, vis_keypoints_error
 #from common.utils.human_models import smpl_x
 
 if cfg.model_type == 'smpl_h':
@@ -36,6 +36,7 @@ from common.utils.preprocessing import load_img, sanitize_bbox, process_bbox, au
     process_human_model_output, load_ply, load_obj
 from common.utils.vis import render_mesh, save_obj, vis_keypoints
 from common.utils.transforms import rigid_align
+import matplotlib.pyplot as plt
 
 class IMA(torch.utils.data.Dataset):
     def __init__(self, transform, data_split):
@@ -347,8 +348,6 @@ class IMA(torch.utils.data.Dataset):
 
         inputs = {}
 
-
-
         # Load data metadata
         data = copy.deepcopy(self.datalist[idx])
         img_path, img_shape, bbox = data['img_path'], data['img_shape'], data['bbox']
@@ -365,25 +364,21 @@ class IMA(torch.utils.data.Dataset):
         mask_original = cv2.imread(mask_gt_path)
         mask_original[mask_original<125] = 0
         mask_original[mask_original>125] = 255
-        grph_original = cv2.imread(grph_gt_path)#[:,:,::-1].copy().astype(np.float32) 
+        grph_original = cv2.imread(grph_gt_path)[:,:,::-1]
 
-
-
-        #
-     
         h, w, c = img_orignal.shape
 
         # Reshape the image according to the label
         if img_shape[0] != w or img_shape[1] != h:
-            img_resized = cv2.resize(img_orignal, img_shape, interpolation = cv2.INTER_LINEAR)
-            mask_resized = cv2.resize(mask_original, img_shape, interpolation = cv2.INTER_NEAREST)
-            grph_resized = cv2.resize(grph_original, img_shape, interpolation = cv2.INTER_NEAREST)
+            img_resized = cv2.resize(img_orignal.copy(), img_shape, interpolation = cv2.INTER_LINEAR)
+            mask_resized = cv2.resize(mask_original.copy(), img_shape, interpolation = cv2.INTER_NEAREST)
+            grph_resized = cv2.resize(grph_original.copy(), img_shape, interpolation = cv2.INTER_NEAREST)
         else:
-            img_resized = img_orignal
-            mask_resized = mask_original
-            grph_resized = grph_original
+            img_resized = img_orignal.copy()
+            mask_resized = mask_original.copy()
+            grph_resized = grph_original.copy()
 
-        
+
 
         scale, rot, color_scale, do_flip = get_augmentation_config(self.data_split)
 
@@ -394,329 +389,127 @@ class IMA(torch.utils.data.Dataset):
         mask_aug, trans_aug, inv_trans_aug = generate_patch_image(mask_resized, bbox, scale, rot, do_flip, cfg.input_img_shape, flags=cv2.INTER_NEAREST)
         grph_aug, trans_aug, inv_trans_aug = generate_patch_image(grph_resized, bbox, scale, rot, do_flip, cfg.input_img_shape, flags=cv2.INTER_NEAREST)     
         #
-        #mask_aug = np.clip(mask_aug * color_scale[None, None, :], 0, 255)
-        
 
-        # input_body_shape [256, 192]
-        # input_img_shape [512, 384]
-        # Augmentation
-        # affine transform
-  
-        #img, img_kpt_aug, img2bb_trans, bb2img_trans, rot, do_flip = augmentation2(img, img_kpt, bbox, self.data_split)
+
         img_scaled = self.transform(img_aug.astype(np.float32)) / 255.
-
-        inputs['img'] = img_scaled #{'img': img_scaled},
-
-
         mask_scaled = self.transform(mask_aug[...,2].astype(np.float32)) / 255.
-        grph_scaled = grph_aug[:,:,::-1].copy().astype(np.float32)
-        #pdb.set_trace()
 
-
-        #img_kpt = cv2.resize(img_kpt, (cfg.input_body_shape[1],cfg.input_body_shape[0]), interpolation = cv2.INTER_LINEAR)
-        #img_kpt_aug = cv2.resize(img_kpt_aug, (cfg.input_body_shape[1],cfg.input_body_shape[0]), interpolation = cv2.INTER_LINEAR)
-
-
-        
+        inputs['img'] = img_scaled 
 
 
         if self.data_split == 'train':
+            joint_2d_flip = joint_2d_orignal.copy()
             if do_flip:
-                joint_2d_orignal[:, 0] = img_shape[0] - 1 - joint_2d_orignal[:, 0]
+                joint_2d_flip[:, 0] = img_shape[0] - 1 - joint_2d_flip[:, 0]
 
                 for pair in self.joint_set['flip_pairs']:
-                    joint_2d_orignal[pair[0], :], joint_2d_orignal[pair[1], :] = joint_2d_orignal[pair[1], :].copy(), joint_2d_orignal[pair[0], :].copy()
+                    joint_2d_flip[pair[0], :], joint_2d_flip[pair[1], :] = joint_2d_flip[pair[1], :].copy(), joint_2d_flip[pair[0], :].copy()
+
 
             # img -> bboxs & augmentation
-            joint_valid = np.ones_like(joint_2d_orignal[:, :1])
-            joint_img_xy1 = np.concatenate((joint_2d_orignal[:, :2], np.ones_like(joint_2d_orignal[:, :1])), 1)
+            
+            joint_img_xy1 = np.concatenate((joint_2d_flip[:, :2], np.ones_like(joint_2d_flip[:, :1])), 1)
 
-            joint_2d_aug = joint_2d_orignal.copy()
+            joint_2d_aug = joint_2d_flip.copy()
             joint_2d_aug[:, :2] = np.dot(trans_img, joint_img_xy1.transpose(1, 0)).transpose(1, 0) #img - > input shape
 
+
+
+
+            if cfg.debug is True:
+
+
+                fig, axs = plt.subplots(4, 3)
+                fig.suptitle('Show input label', fontsize=16)
+
+                # Original image
+                axs[0, 0].imshow(img_orignal.astype('uint8'))
+                axs[0, 1].imshow(mask_original)
+                axs[0, 2].imshow(grph_original)
+
+                # Reszied image
+                img_resized_with_ktp = vis_keypoints(img_resized, joint_2d_orignal.astype(np.int32))
+                mask_resized_with_ktp = vis_keypoints(mask_resized, joint_2d_orignal.astype(np.int32))
+                grph_resized_with_ktp = vis_keypoints(grph_resized, joint_2d_orignal.astype(np.int32))
+
+                axs[1, 0].imshow(img_resized_with_ktp.astype('uint8'))
+                axs[1, 1].imshow(mask_resized_with_ktp.astype('uint8'))
+                axs[1, 2].imshow(grph_resized_with_ktp.astype('uint8'))               
             
+                # Augmented Image
+                #axs[2, 0].imshow(img_aug.astype('uint8'))
+                #axs[2, 1].imshow(mask_aug.astype('uint8'))
+                #axs[2, 2].imshow(grph_aug.astype('uint8'))
 
+                img_aug_with_ktp = vis_keypoints(img_aug, joint_2d_aug.astype(np.int32))
+                mask_aug_with_ktp = vis_keypoints(mask_aug, joint_2d_aug.astype(np.int32))
+                grph_aug_with_ktp = vis_keypoints(grph_aug, joint_2d_aug.astype(np.int32))
 
-            if cfg.debug:
-                kpt_image_original = img_orignal.copy()
-                if img_shape[0] != w or img_shape[1] != h:
-                    kpt_image_resize = cv2.resize(kpt_image_original, img_shape, interpolation = cv2.INTER_LINEAR)
-                else:
-                    kpt_image_resize = kpt_image_original
+                axs[2, 0].imshow(img_aug_with_ktp.astype('uint8'))
+                axs[2, 1].imshow(mask_aug_with_ktp.astype('uint8'))
+                axs[2, 2].imshow(grph_aug_with_ktp.astype('uint8'))
 
-                # For debugging
-                # KPT on original image
-                for i in range(joint_2d_orignal.shape[0]):
-                    if ((joint_2d_orignal[i, 0] > 0) *  (joint_2d_orignal[i, 0] < img_shape[0]) *
-                        (joint_2d_orignal[i, 1] > 0) *  (joint_2d_orignal[i, 1] < img_shape[1])):
-                        cv2.circle(
-                            kpt_image_resize,  
-                            (joint_2d_orignal[i,0].astype(np.int32), joint_2d_orignal[i,1].astype(np.int32)), 
-                            radius=5, color=(0, 255, 0), thickness=-1, lineType=cv2.LINE_AA)    
-                            
-                #cv2.imwrite(f'kpt_on_resized.jpg', kpt_image_resize[:, :, ::-1])
-
-                kpt_image_aug, trans_img, inv_trans_img = generate_patch_image(kpt_image_resize, bbox, scale, rot, do_flip, cfg.input_img_shape)     
-                kpt_image_aug = np.clip(kpt_image_aug * color_scale[None, None, :], 0, 255)
-
-                # KPT on augmented image
-                for i in range(joint_2d_aug.shape[0]):
-                    if ((joint_2d_aug[i, 0] > 0) * (joint_2d_aug[i, 0] < cfg.input_img_shape[1]) *
-                        (joint_2d_aug[i, 1] > 0) * (joint_2d_aug[i, 1] < cfg.input_img_shape[0])):
-                                    
-                        cv2.circle(
-                            kpt_image_aug, 
-                            (joint_2d_aug[i,0].astype(np.int32), joint_2d_aug[i,1].astype(np.int32)), 
-                            radius=2, color=(255, 0, 0), thickness=-1, lineType=cv2.LINE_AA)
-
-                #cv2.imwrite(f'kpt_on_augmented.jpg', kpt_image_aug[:, :, ::-1])
-
-                #pdb.set_trace()
-
-                #inputs['kpt_image_resize'] = kpt_image_resize
-                inputs['kpt_image_aug'] = kpt_image_aug
-                
-                # Render augmented keypoints on the augmented image.
-                #img2 = np.ascontiguousarray((kpt_image_aug.detach().numpy().copy()*255).transpose([1,2,0]) , dtype=np.uint8)
-            
-
-            joint_trunc_aug = joint_valid * \
-                ((joint_2d_aug[:, 0] >= 0) * (joint_2d_aug[:, 0] < cfg.input_img_shape[0]) *
-                 (joint_2d_aug[:, 1] >= 0) * (joint_2d_aug[:, 1] < cfg.input_img_shape[1])# * 
-                 ).reshape(-1, 1).astype(np.float32)
-
-
-            joint_2d_hm = joint_2d_aug.copy()
-            joint_2d_hm[:, 0] = joint_2d_hm[:, 0] / cfg.input_img_shape[1] * cfg.output_hm_shape[2] # # input shape to mesh shape
-            joint_2d_hm[:, 1] = joint_2d_hm[:, 1] / cfg.input_img_shape[0] * cfg.output_hm_shape[1] # input shape to mesh shape
-
-
-
-            joint_trunc_hm = joint_valid * \
-                ((joint_2d_hm[:, 0] >= 0) * (joint_2d_hm[:, 0] < cfg.output_hm_shape[2]) *
-                 (joint_2d_hm[:, 1] >= 0) * (joint_2d_hm[:, 1] < cfg.output_hm_shape[1])# * 
-                 ).reshape(-1, 1).astype(np.float32)
-            
-
-            joint_2d_gt = joint_2d_aug.copy()
-            joint_2d_gt[:, 0] = joint_2d_gt[:, 0] / cfg.input_img_shape[1] * cfg.input_body_shape[1] # # input shape to mesh shape
-            joint_2d_gt[:, 1] = joint_2d_gt[:, 1] / cfg.input_img_shape[0] * cfg.input_body_shape[0] # input shape to mesh shape
-
-
-
-            joint_trunc_gt = joint_valid * \
-                ((joint_2d_gt[:, 0] >= 0) * (joint_2d_gt[:, 0] < cfg.input_body_shape[1]) *
-                 (joint_2d_gt[:, 1] >= 0) * (joint_2d_gt[:, 1] < cfg.input_body_shape[0])# * 
-                 ).reshape(-1, 1).astype(np.float32)
-
-            
-            #joint_2d_hm[np.isnan(joint_2d_hm)] = 0
-            
+                inputs['kpt_image_aug'] = img_aug_with_ktp
 
             if self.method == 'dsr':
-                #gt_keypoints_2d_orig = 0 #item['keypoints'].clone() 
-                #gt_keypoints_2d_orig[:, :-1] = 0 #0.5 * self.options.IMG_RES * (gt_keypoints_2d_orig[:, :-1] + 1) 
-                #gt_keypoints_2d_np = 0# gt_keypoints_2d_orig.unsqueeze(0).numpy() 
-                grph = grph_scaled.copy().astype(np.uint8)
-                #np.transpose((grph_scaled.copy() ).astype(np.uint8), (1,2,0)) 
-                #pdb.set_trace()
+                grph = grph_aug.copy().astype(np.uint8)
+
                 # Get graphonomy data - SR-Pixel 
                 grph_dsr_mc_gt, valid_labels_dsr_mc, _ = convert_grph_to_binary_mask(grph, True, True, joint_2d_aug) 
-                #pdb.set_trace()
-                smpl_textures_dsr_mc_gt = get_dsr_mc_probPrior(valid_labels_dsr_mc) 
                 grph_dsr_mc_dist_mat = get_distance_matrix(grph_dsr_mc_gt) 
+                
                 # Get graphonomy data - SR-Vertex 
                 grph_dsr_c_gt, valid_labels_dsr_c, class_weight = convert_grph_to_labels(grph, joint_2d_aug,  \
                                                 True, constants.DSR_C_LABELS_MAP, constants.DSR_C_LABELS) 
+                
+                smpl_textures_dsr_mc_gt = get_dsr_mc_probPrior(valid_labels_dsr_mc) 
                 smpl_textures_dsr_c_gt = get_dsr_c_probPrior(True, constants.DSR_C_LABELS_MAP)  
-
                 # Combine Silheoute and Probability to be used as texture
                 smpl_textures_gt = np.concatenate((smpl_textures_dsr_mc_gt[None, ...],  \
                                                     smpl_textures_dsr_c_gt), axis=0) 
 
+                if cfg.debug is True:
+                    axs[3, 0].imshow((grph_dsr_mc_gt * 255).astype('uint8'))
+                    axs[3, 1].imshow((grph_dsr_c_gt * 10).astype('uint8'))
+                    axs[3, 2].imshow((grph_dsr_mc_dist_mat * 255).astype('uint8'))
+                    fig.set_figheight(10)
+                    fig.set_figwidth(10)
+                    fig.subplots_adjust(wspace=0.2, hspace=0.2)
+
+                    plt.show()
 
 
 
+            joint_valid = np.ones_like(joint_2d_orignal[:, :1])
+            joint_valid = joint_valid * \
+                ((joint_2d_orignal[:, 0] > 0) * (joint_2d_orignal[:, 0] < w) *
+                 (joint_2d_orignal[:, 1] > 0) * (joint_2d_orignal[:, 1] < h)# * 
+                 ).reshape(-1, 1).astype(np.float32)
 
 
-            targets = {'joint_img': joint_2d_gt, 
+
+            targets = {'joint_img': joint_2d_aug, 
                        'mask_gt': mask_scaled,
-                       'grph_gt': grph_scaled,
-                       'smplx_joint_img': joint_2d_hm,
                        'grph_dsr_c_label':grph_dsr_c_gt,
                        'grph_dsr_mc_label': grph_dsr_mc_gt,
                        'grph_dsr_mc_dist_mat': grph_dsr_mc_dist_mat,
                        'smpl_textures_gt': smpl_textures_gt,
                        'dsr_c_class_weight': class_weight,
+                       'grph_raw': grph_aug,
                        'valid_labels_dsr_mc':convert_fixed_length_vector(valid_labels_dsr_mc, 'dsr_mc'),
                        'valid_labels_dsr_c': convert_fixed_length_vector(valid_labels_dsr_c, 'dsr_c')
-                       #'joint_cam': joint_cam, '
-                       #'smplx_joint_cam': joint_cam, 'smplx_pose': smplx_pose, 'smplx_shape': smplx_shape,
-                       #'smplx_expr': smplx_expr, 'lhand_bbox_center': lhand_bbox_center,
-                       #'lhand_bbox_size': lhand_bbox_size, 'rhand_bbox_center': rhand_bbox_center,
-                       #'rhand_bbox_size': rhand_bbox_size, 'face_bbox_center': face_bbox_center,
-                       #'face_bbox_size': face_bbox_size
                        }
             meta_info = {
                 'joint_idx': np.array(self.keypoint_idx_posemodel),
                 'joint_valid': joint_valid, 
-                'joint_trunc': joint_trunc_gt,
-                         #'smplx_joint_valid': np.zeros_like(joint_valid),
-                         #'smplx_joint_trunc': np.zeros_like(joint_trunc), 'smplx_pose_valid': smplx_pose_valid,
-                         #'smplx_shape_valid': float(smplx_shape_valid), 'smplx_expr_valid': float(smplx_expr_valid),
-                         #'is_3D': float(True), 'lhand_bbox_valid': lhand_bbox_valid,
-                         #'rhand_bbox_valid': rhand_bbox_valid, 'face_bbox_valid': face_bbox_valid
-                         }
+                'joint_trunc': joint_valid
+                }
 
 
             return inputs, targets, meta_info
-        
-
-            # hand and face bbox transform
-            #lhand_bbox, rhand_bbox, face_bbox = data['lhand_bbox'], data['rhand_bbox'], data['face_bbox']
-            #lhand_bbox, lhand_bbox_valid = self.process_hand_face_bbox(lhand_bbox, do_flip, img_shape, img2bb_trans)
-            #rhand_bbox, rhand_bbox_valid = self.process_hand_face_bbox(rhand_bbox, do_flip, img_shape, img2bb_trans)
-            #face_bbox, face_bbox_valid = self.process_hand_face_bbox(face_bbox, do_flip, img_shape, img2bb_trans)
-            #if do_flip:
-            #    lhand_bbox, rhand_bbox = rhand_bbox, lhand_bbox
-            #    lhand_bbox_valid, rhand_bbox_valid = rhand_bbox_valid, lhand_bbox_valid
-            #lhand_bbox_center = (lhand_bbox[0] + lhand_bbox[1]) / 2.;
-            #rhand_bbox_center = (rhand_bbox[0] + rhand_bbox[1]) / 2.;
-            #face_bbox_center = (face_bbox[0] + face_bbox[1]) / 2.
-            #lhand_bbox_size = lhand_bbox[1] - lhand_bbox[0];
-            #rhand_bbox_size = rhand_bbox[1] - rhand_bbox[0];
-            #face_bbox_size = face_bbox[1] - face_bbox[0];
-
-            """
-            # for debug
-            _img = img.numpy().transpose(1,2,0)[:,:,::-1].copy() * 255
-            if lhand_bbox_valid:
-                _tmp = lhand_bbox.copy().reshape(2,2)
-                _tmp[:,0] = _tmp[:,0] / cfg.output_hm_shape[2] * cfg.input_img_shape[1]
-                _tmp[:,1] = _tmp[:,1] / cfg.output_hm_shape[1] * cfg.input_img_shape[0]
-                cv2.rectangle(_img, (int(_tmp[0,0]), int(_tmp[0,1])), (int(_tmp[1,0]), int(_tmp[1,1])), (255,0,0), 3)
-                cv2.imwrite('agora_' + str(idx) + '_lhand.jpg', _img)
-            if rhand_bbox_valid:
-                _tmp = rhand_bbox.copy().reshape(2,2)
-                _tmp[:,0] = _tmp[:,0] / cfg.output_hm_shape[2] * cfg.input_img_shape[1]
-                _tmp[:,1] = _tmp[:,1] / cfg.output_hm_shape[1] * cfg.input_img_shape[0]
-                cv2.rectangle(_img, (int(_tmp[0,0]), int(_tmp[0,1])), (int(_tmp[1,0]), int(_tmp[1,1])), (255,0,0), 3)
-                cv2.imwrite('agora_' + str(idx) + '_rhand.jpg', _img)
-            if face_bbox_valid:
-                _tmp = face_bbox.copy().reshape(2,2)
-                _tmp[:,0] = _tmp[:,0] / cfg.output_hm_shape[2] * cfg.input_img_shape[1]
-                _tmp[:,1] = _tmp[:,1] / cfg.output_hm_shape[1] * cfg.input_img_shape[0]
-                cv2.rectangle(_img, (int(_tmp[0,0]), int(_tmp[0,1])), (int(_tmp[1,0]), int(_tmp[1,1])), (255,0,0), 3)
-                cv2.imwrite('agora_' + str(idx) + '_face.jpg', _img)
-            #cv2.imwrite('agora_' + str(idx) + '.jpg', _img)
-            """
-
-            # coordinates
-            #joint_cam = joint_cam - joint_cam[self.joint_set['root_joint_idx'], None, :]  # root-relative
-            #joint_cam[self.joint_set['joint_part']['lhand'], :] = joint_cam[self.joint_set['joint_part']['lhand'],
-            #                                                      :] - joint_cam[self.joint_set['lwrist_idx'], None,
-            #                                                           :]  # left hand root-relative
-            #joint_cam[self.joint_set['joint_part']['rhand'], :] = joint_cam[self.joint_set['joint_part']['rhand'],
-            #                                                      :] - joint_cam[self.joint_set['rwrist_idx'], None,
-            #                                                           :]  # right hand root-relative
-            #joint_cam[self.joint_set['joint_part']['face'], :] = joint_cam[self.joint_set['joint_part']['face'],
-            #                                                     :] - joint_cam[self.joint_set['neck_idx'], None,
-            #                                                          :]  # face root-relative
-            #joint_img = np.concatenate((joint_img[:, :2], joint_cam[:, 2:]), 1)  # x, y, depth
-            #joint_img[self.joint_set['joint_part']['body'], 2] = (joint_cam[self.joint_set['joint_part'][
-            #                                                                    'body'], 2].copy() / (
-            #                                                                  cfg.body_3d_size / 2) + 1) / 2. * \
-            #                                                     cfg.output_hm_shape[0]  # body depth discretize
-            #joint_img[self.joint_set['joint_part']['lhand'], 2] = (joint_cam[self.joint_set['joint_part'][
-            #                                                                     'lhand'], 2].copy() / (
-            #                                                                   cfg.hand_3d_size / 2) + 1) / 2. * \
-            #                                                      cfg.output_hm_shape[0]  # left hand depth discretize
-            #joint_img[self.joint_set['joint_part']['rhand'], 2] = (joint_cam[self.joint_set['joint_part'][
-            #                                                                     'rhand'], 2].copy() / (
-            #                                                                   cfg.hand_3d_size / 2) + 1) / 2. * \
-            #                                                      cfg.output_hm_shape[0]  # right hand depth discretize
-            #joint_img[self.joint_set['joint_part']['face'], 2] = (joint_cam[self.joint_set['joint_part'][
-            #                                                                    'face'], 2].copy() / (
-            #                                                                  cfg.face_3d_size / 2) + 1) / 2. * \
-            #                                                     cfg.output_hm_shape[0]  # face depth discretize
-            #joint_valid = np.ones_like(joint_img[:, :1])
-            #joint_img, joint_cam, joint_valid, joint_trunc = process_db_coord(joint_img, joint_cam, joint_valid,
-            #                                                                  do_flip, img_shape,
-            #                                                                  self.joint_set['flip_pairs'],
-            #                                                                  img2bb_trans, rot,
-            #                                                                  self.joint_set['joints_name'],
-            #                                                                  smpl.joints_name)
-            
-            
-
-            
-
-
-            
-            #pdb.set_trace()
-
-
-
-            #joint_bbox = 
-
-            #pdb.set_trace()
-
-            """
-            # for debug
-            _tmp = joint_img.copy() 
-            _tmp[:,0] = _tmp[:,0] / cfg.output_hm_shape[2] * cfg.input_img_shape[1]
-            _tmp[:,1] = _tmp[:,1] / cfg.output_hm_shape[1] * cfg.input_img_shape[0]
-            _img = img.numpy().transpose(1,2,0)[:,:,::-1] * 255
-            _img = vis_keypoints(_img.copy(), _tmp)
-            cv2.imwrite('agora_' + str(idx) + '.jpg', _img)
-            """
-
-            """
-            # for debug
-            _tmp = joint_cam.copy()[:,:2]
-            _tmp[:,0] = _tmp[:,0] / (cfg.body_3d_size / 2) * cfg.input_img_shape[1] + cfg.input_img_shape[1]/2
-            _tmp[:,1] = _tmp[:,1] / (cfg.body_3d_size / 2) * cfg.input_img_shape[0] + cfg.input_img_shape[0]/2
-            _img = np.zeros((cfg.input_img_shape[0], cfg.input_img_shape[1], 3), dtype=np.float32)
-            _img = vis_keypoints(_img.copy(), _tmp)
-            cv2.imwrite('agora_' + str(idx) + '_cam.jpg', _img)
-            """
-
-            # smplx parameters
-            #root_pose = np.array(smplx_param['global_orient'], dtype=np.float32).reshape(
-            #    -1)  # rotation to world coordinate
-            #body_pose = np.array(smplx_param['body_pose'], dtype=np.float32).reshape(-1)
-            #shape = np.array(smplx_param['betas'], dtype=np.float32).reshape(-1)[:10]  # bug?
-            #lhand_pose = np.array(smplx_param['left_hand_pose'], dtype=np.float32).reshape(-1)
-            #rhand_pose = np.array(smplx_param['right_hand_pose'], dtype=np.float32).reshape(-1)
-            #jaw_pose = np.array(smplx_param['jaw_pose'], dtype=np.float32).reshape(-1)
-            #expr = np.array(smplx_param['expression'], dtype=np.float32).reshape(-1)
-            #trans = np.array(smplx_param['transl'], dtype=np.float32).reshape(-1)  # translation to world coordinate
-            cam_param = {'focal': cfg.focal,
-                         'princpt': cfg.princpt}  # put random camera paraemter as we do not use coordinates from smplx parameters
-            #smplx_param = {'root_pose': root_pose, 'body_pose': body_pose, 'shape': shape,
-            #               'lhand_pose': lhand_pose, 'lhand_valid': True,
-            #               'rhand_pose': rhand_pose, 'rhand_valid': True,
-            #               'jaw_pose': jaw_pose, 'expr': expr, 'face_valid': True,
-            #               'trans': trans}
-            #_, _, _, smplx_pose, smplx_shape, smplx_expr, smplx_pose_valid, _, smplx_expr_valid, _ = process_human_model_output(
-            #    smplx_param, cam_param, do_flip, img_shape, img2bb_trans, rot, 'smplx')
-            #smplx_pose_valid = np.tile(smplx_pose_valid[:, None], (1, 3)).reshape(-1)
-            #smplx_pose_valid[
-            #:3] = 0  # global orient of the provided parameter is a rotation to world coordinate system. I want camera coordinate system.
-            #smplx_shape_valid = True
 
             
         else:
-            # load crop and resize information (for the 4K setting)
-            #if self.resolution == (2160, 3840):
-            #    img2bb_trans = np.dot(
-            #        np.concatenate((img2bb_trans,
-            #                        np.array([0, 0, 1], dtype=np.float32).reshape(1, 3))),
-            #        np.concatenate((data['img2bb_trans_from_orig'],
-            #                        np.array([0, 0, 1], dtype=np.float32).reshape(1, 3)))
-            #    )
-            #    bb2img_trans = np.linalg.inv(img2bb_trans)[:2, :]
-            #    img2bb_trans = img2bb_trans[:2, :]
 
             pdb.set_trace()
             if self.test_set == 'val':
