@@ -7,41 +7,49 @@ import sys
 sys.path.insert(0, "../main/transformer_utils")
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--gpu', type=str, dest='gpu_ids')
+    parser.add_argument('--devices', type=str, default='cpu', dest='devices')
     parser.add_argument('--exp_name', type=str, default='output/test')
     parser.add_argument('--test_batch_size', type=int, default=32)
     parser.add_argument('--encoder_setting', type=str, default='osx_l', choices=['osx_b', 'osx_l'])
     parser.add_argument('--decoder_setting', type=str, default='wo_face_decoder', choices=['normal', 'wo_face_decoder', 'wo_decoder'])
     parser.add_argument('--testset', type=str, default='EHF')
     parser.add_argument('--agora_benchmark', action='store_true')
+    parser.add_argument('--ima_benchmark', action='store_true')
     parser.add_argument('--pretrained_model_path', type=str, default='../pretrained_models/osx_l_wo_face_decoder.pth.tar')
     parser.add_argument('--model_type', type=str, default='smil_h')
     args = parser.parse_args()
 
-    if not args.gpu_ids:
-        assert 0, "Please set proper gpu ids"
+    if not args.devices:
+        assert 0, "please set proper devices"
 
-    if '-' in args.gpu_ids:
-        gpus = args.gpu_ids.split('-')
-        gpus[0] = int(gpus[0])
-        gpus[1] = int(gpus[1]) + 1
-        args.gpu_ids = ','.join(map(lambda x: str(x), list(range(*gpus))))
+    if args.devices[:3] == 'gpu':
+        args.device = 'cuda'
+        args.gpu_ids = [i for i in args.devices[4:].split(',')]
+
+    elif args.devices[:3] == 'cpu':
+        args.device = 'cpu'
+        args.gpu_ids = None
+    else:
+        raise NotImplementedError()
 
     return args
 
 def main():
     print('### Argument parse and create log ###')
     args = parse_args()
-    cfg.set_args(args.gpu_ids)
+    cfg.set_args(args.device, args.gpu_ids)
     model_type = args.model_type
     cfg.set_additional_args(exp_name=args.exp_name,
                             test_batch_size=args.test_batch_size,
+                            num_thread=args.num_thread,
                             encoder_setting=args.encoder_setting,
                             decoder_setting=args.decoder_setting,
                             pretrained_model_path=args.pretrained_model_path,
                             agora_benchmark=args.agora_benchmark,
+                            ima_benchmark=args.ima_benchmark,
                             testset=args.testset,
-                            model_type=model_type
+                            model_type=model_type,
+                            debug=args.debug
                             )
     cudnn.benchmark = True
     from common.base import Tester

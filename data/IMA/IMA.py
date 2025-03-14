@@ -45,8 +45,8 @@ class IMA(torch.utils.data.Dataset):
         self.data_path = osp.join(cfg.data_dir, 'IMA', 'data')
         self.annot_path = osp.join(cfg.data_dir, 'IMA', 'annotations')
         self.img_path = osp.join(cfg.data_dir, 'IMA', 'images')
-        self.mask_gt_root = '/proj/berzelius-2024-331/users/x_hensh/git/OSX/dataset/IMA/mask/raw_masks'
-        self.grph_gt_root = '/proj/berzelius-2024-331/users/x_hensh/data/Youtube-Infant-Body-Parsing/Graphonomy_video_separated_png'
+        self.mask_gt_root = '../dataset/IMA/mask/raw_masks'
+        self.grph_gt_root = '../dataset/IMA/mask/Graphonomy_video_separated_png'
 
         #self.resolution = (2160, 3840)  # height, width. one of (720, 1280) and (2160, 3840)
         self.resolution = (0, 0)  # height, width. one of (720, 1280) and (2160, 3840)
@@ -169,7 +169,7 @@ class IMA(torch.utils.data.Dataset):
     def load_data(self):
         # load frame size
 
-        video_sizes_df = pd.read_excel('/proj/berzelius-2024-331/users/x_hensh/git/OSX/dataset/IMA/annotations/annotations_size.xlsx')
+        video_sizes_df = pd.read_excel('../dataset/IMA/annotations/annotations_size.xlsx')
         video_sizes_dict = {}
         n_row, _ = video_sizes_df.shape
         for row in range(n_row):

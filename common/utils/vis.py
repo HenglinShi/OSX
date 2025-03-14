@@ -5,7 +5,9 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import os
-os.environ["PYOPENGL_PLATFORM"] = "egl"
+import platform
+if not platform.system() == 'Windows':
+    os.environ["PYOPENGL_PLATFORM"] = "egl"
 import pyrender
 import trimesh
 from config import cfg
@@ -56,7 +58,7 @@ def vis_keypoints(img, kps, alpha=1):
         cv2.circle(kp_mask, p, radius=3, color=colors[i], thickness=-1, lineType=cv2.LINE_AA)
 
     # Blend the keypoints.
-    return cv2.addWeighted(img, 1.0 - alpha, kp_mask, alpha, 0)
+    return kp_mask#cv2.addWeighted(img, 1.0 - alpha, kp_mask, alpha, 0)
 
 
 def vis_keypoints_error(img, kps_pred, kps_gt, alpha=1):

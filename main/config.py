@@ -1,7 +1,8 @@
 import os
 import os.path as osp
 import sys
-
+import platform
+import shutil
 class Config:
 
     # dataset setting
@@ -88,7 +89,7 @@ class Config:
         names = self.__dict__
         for k, v in kwargs.items():
             names[k] = v
-        self.model_type = self.model_type
+        # self.model_type = self.model_type
         self.prepare_dirs(self.exp_name)
         if self.encoder_setting == 'osx_b':
             self.encoder_config_file = os.path.join(cfg.root_dir, 'main/transformer_utils/configs/osx/encoder/body_encoder_base.py')
@@ -100,6 +101,7 @@ class Config:
             self.feat_dim = 1024
         if 'AGORA' in self.testset:
             self.testset = 'AGORA'
+
         if self.agora_benchmark:
             self.smplx_loss_weight = 2
             self.trainset_3d = ['AGORA']
@@ -114,7 +116,11 @@ class Config:
             self.trainset_2d = ['IMA']
             self.testset = 'IMA'
 
-
+    def copy_all(self, src, dst):
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
 
     def prepare_dirs(self, exp_name):
         self.output_dir = osp.join(self.root_dir, exp_name)
@@ -132,8 +138,14 @@ class Config:
         copy_files = ['main/config.py', 'main/train.py', 'main/test.py', 'common/base.py',
                       'main/OSX.py', 'common/nets', 'main/OSX_WoDecoder.py',
                       'data/dataset.py', 'data/MSCOCO/MSCOCO.py', 'data/AGORA/AGORA.py']
+
         for file in copy_files:
-            os.system(f'cp -r {self.root_dir}/{file} {self.code_dir}')
+            self.copy_all(os.path.join(self.root_dir, file), self.code_dir)
+
+            #if platform.system() == 'Windows':
+            #    os.system(f'copy {self.root_dir}/{file} {self.code_dir}')
+            #elif platform.system() == 'Linux':
+            #    os.system(f'cp -r {self.root_dir}/{file} {self.code_dir}')
 
 cfg = Config()
 

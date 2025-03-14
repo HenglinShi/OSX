@@ -212,7 +212,7 @@ class Tester(Base):
 
     def _print_eval_result(self, eval_result):
         self.testset.print_eval_result(eval_result)
-
+import pdb
 class Demoer(Base):
     def __init__(self, test_epoch=None):
         if test_epoch is not None:

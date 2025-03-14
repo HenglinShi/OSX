@@ -3,8 +3,10 @@ import torch
 import pdb
 from pytorch3d.structures import Meshes
 from pytorch3d.renderer import (
-    OpenGLPerspectiveCameras, SoftSilhouetteShader, TexturesAtlas, 
-    RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,PerspectiveCameras, HardPhongShader,PointLights,TexturesVertex, TexturesUV
+    OpenGLPerspectiveCameras, SoftSilhouetteShader, TexturesAtlas, SoftPhongShader,
+    RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,PerspectiveCameras,
+    HardPhongShader,PointLights, DirectionalLights,
+    TexturesVertex, TexturesUV
 )
 
 
@@ -25,11 +27,12 @@ class base_renderer():
             self.T = torch.zeros(3).repeat(1, 1).to(device)
 
         self.camera = self.init_camera(focal, principal_point)
-        self.silhouette_renderer = self.init_silhouette_renderer()
-        if colorRender:
-            self.color_render = self.color()
-        else:
-            self.color_render = None
+        #self.silhouette_renderer = self.init_silhouette_renderer()
+        self.renderer = self.init_renderer()
+        #if colorRender:
+        #    self.color_render = self.color()
+        #else:
+        #    self.color_render = None
 
     def init_camera(self, focal, principal_point, fov=None):
 
@@ -61,6 +64,31 @@ class base_renderer():
             shader=SoftSilhouetteShader(blend_params=blend_params)
         )
         return silhouette_renderer
+
+    def init_renderer(self, sigma=1.0e-5, gamma=1.0e-1):
+        blend_params = BlendParams(sigma=sigma, gamma=gamma)
+        raster_settings = RasterizationSettings(
+            image_size=self.size,
+            blur_radius=np.log(1. / 1e-4 - 1.) * blend_params.sigma,
+            faces_per_pixel=100,
+            perspective_correct=False,
+        )
+        lights = DirectionalLights(device=self.device,
+                                   ambient_color=((1., 1., 1.),),
+                                   diffuse_color=((0., 0., 0.),),
+                                   )
+        #https://github.com/facebookresearch/pytorch3d/blob/06a76ef8ddd00b6c889768dfc990ae8cb07c6f2f/docs/tutorials/fit_textured_mesh.ipynb#L530
+
+        renderer_textured = MeshRenderer(
+            rasterizer=MeshRasterizer(
+                cameras=self.camera,
+                raster_settings=raster_settings
+            ),
+            shader=SoftPhongShader(device=self.device,
+                                   cameras=self.camera,
+                                   lights=lights)
+        )
+        return renderer_textured
 
     def color(self):
         raster_settings_color = RasterizationSettings(
@@ -111,12 +139,14 @@ class base_renderer():
         #textures = TexturesVertex(verts_features=textures.to(self.device))
         if textures is not None:
             textures = TexturesAtlas(atlas=textures.to(self.device))
+        else:
+            textures = TexturesVertex(verts_features=vertices)
         
         torch_mesh = Meshes(verts=vertices.to(self.device),
                             faces=faces.to(self.device),
                             textures=textures)
         
-        silhouette = self.silhouette_renderer(meshes_world=torch_mesh.clone(),
+        rendered = self.renderer(meshes_world=torch_mesh.clone(),
                                               R=self.R, T=self.T)#[..., -1]
         screen_size = torch.ones(1, 2) * torch.Tensor(self.size) #torch.ones(vertices.shape[0],2)
         screen_size = screen_size.to(self.device)#torch.ones(1, 2).to(self.device) * self.size #torch.ones(vertices.shape[0],2)
@@ -124,6 +154,6 @@ class base_renderer():
             proj_points = self.camera.transform_points_screen(points.to(self.device), image_size=screen_size)[:, :, :2]
 
         if points is not None:
-            return silhouette, proj_points
+            return rendered, proj_points
         else:
-            return silhouette
+            return rendered

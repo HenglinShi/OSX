@@ -11,11 +11,12 @@ sys.path.insert(0, osp.join('..', 'data'))
 from config import cfg
 import cv2
 import pdb
-
-os.environ["PYOPENGL_PLATFORM"] = "egl"
+import platform
+if not platform.system() == 'Windows':
+    os.environ["PYOPENGL_PLATFORM"] = "egl"
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--gpu', type=str, dest='gpu_ids', default='0')
+    parser.add_argument('--devices', type=str, default='cpu', dest='devices')
     parser.add_argument('--img_path', type=str, default='input.png')
     parser.add_argument('--output_folder', type=str, default='output')
     parser.add_argument('--encoder_setting', type=str, default='osx_l', choices=['osx_b', 'osx_l'])
@@ -24,20 +25,23 @@ def parse_args():
     parser.add_argument('--model_type', type=str, default='smil_h')
     args = parser.parse_args()
 
-    # test gpus
-    if not args.gpu_ids:
-        assert 0, print("Please set proper gpu ids")
+    if not args.devices:
+        assert 0, "please set proper devices"
 
-    if '-' in args.gpu_ids:
-        gpus = args.gpu_ids.split('-')
-        gpus[0] = int(gpus[0])
-        gpus[1] = int(gpus[1]) + 1
-        args.gpu_ids = ','.join(map(lambda x: str(x), list(range(*gpus))))
-    
+    if args.devices[:3] == 'gpu':
+        args.device = 'cuda'
+        args.gpu_ids = [i for i in args.devices[4:].split(',')]
+
+    elif args.devices[:3] == 'cpu':
+        args.device = 'cpu'
+        args.gpu_ids = None
+    else:
+        raise NotImplementedError()
+
     return args
 
 args = parse_args()
-cfg.set_args(args.gpu_ids)
+cfg.set_args(args.device, args.gpu_ids)
 cudnn.benchmark = True
 
 model_type = args.model_type
@@ -82,7 +86,7 @@ original_img = load_img(args.img_path)
 
 image_name = args.img_path.split('/')[-1][:-4]
 video_name = image_name[1:7]
-mask_path = os.path.join('/proj/berzelius-2024-331/users/x_hensh/git/OSX/dataset/IMA/mask/render/', 'video_'+video_name, image_name + '.jpg')
+mask_path = os.path.join('../dataset/IMA/mask/render/', 'video_'+video_name, image_name + '.jpg')
 original_mask = load_img(mask_path)
 
 #pdb.set_trace()

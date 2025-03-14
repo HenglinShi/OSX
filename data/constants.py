@@ -28,7 +28,7 @@ GRPH_LABEL_TO_SMPL_JOINT = {'leftShoe': [[7,10], [1.0, 1.0]],
                             'pants': [[1, 2, 4, 5], [1.0, 1.0, 1.0, 1.0]]}
 GRPH_LABEL_TO_KEYPOINTS = {'leftShoe': [14, 19, 20, 21, 30], 'rightShoe': [11, 22, 23, 24, 25]}
 
-RP_TEXTURE_PROB = '/proj/berzelius-2024-331/users/x_hensh/git/DSR/dsr_data/semantic_prior.npy'
+RP_TEXTURE_PROB = '../dataset/IMA/semantic_prior.npy'
 
 SELECTED_GRPH_LABELS = ['leftShoe', 'rightShoe', 'leftArm', 'rightArm', 'face']
 

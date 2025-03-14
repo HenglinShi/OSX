@@ -377,19 +377,7 @@ class Model(nn.Module):
         #pdb.set_trace()
         
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape)
-        targets['joint_img'][:, :, 0] = targets['joint_img'][:, :, 0] / cfg.input_img_shape[1] * cfg.input_body_shape[1] # # input shape to mesh shape
-        targets['joint_img'][:, :, 1] = targets['joint_img'][:, :, 1] / cfg.input_img_shape[0] * cfg.input_body_shape[0] # input shape to mesh shape
 
-        #targets['grph_gt']              = F.interpolate(targets['grph_gt']             .permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
-        targets['grph_dsr_mc_label']    = F.interpolate(targets['grph_dsr_mc_label']   .permute([0,3,1,2]), cfg.input_body_shape).permute([0,2,3,1])    # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
-        targets['grph_dsr_mc_dist_mat'] = F.interpolate(targets['grph_dsr_mc_dist_mat'].permute([0,3,1,2]), cfg.input_body_shape).permute([0,2,3,1])    # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]        
-        targets['grph_dsr_c_label']     = F.interpolate(targets['grph_dsr_c_label']    .unsqueeze(1),       cfg.input_body_shape).permute([0,2,3,1]) # [32 x 512 x 384]
-        
-        targets['mask_gt']    =           F.interpolate(targets['mask_gt'],                                 cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
-        targets['grph_raw']   =           F.interpolate(targets['grph_raw']            .permute([0,3,1,2]), cfg.input_body_shape).permute([0,2,3,1]) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
-
-
-        
         batch_size = body_img.shape[0]
 
         # 1. Encoder
@@ -449,116 +437,120 @@ class Model(nn.Module):
         joint_proj, joint_cam, mesh_cam, regoutput, joint_cam_tr = self.get_coord_hshi(root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode)
         #pdb.set_trace()
         #joint_proj, joint_cam, mesh_cam, regoutput = self.get_coord_hshi(root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode)
-        pose = torch.cat((root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose), 1)
+        #pose = torch.cat((root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose), 1)
         joint_img = torch.cat((body_joint_img, lhand_joint_img, rhand_joint_img), 1)
 
 
-        textures = targets['smpl_textures_gt']
-        textures = textures.unsqueeze(3) 
-        rend_dim = textures.shape[1]
-        # B 6890 3 - > 9B 6890 3
-        batch_vertices = torch.repeat_interleave(mesh_cam, repeats=rend_dim, dim=0) # [1152, 6890, 3]
-
-        # 1 X 13376 X 3 --> 9b X 13376 X 3
-        batch_smpl_faces = torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).expand(
-            rend_dim*batch_size, self.smpl.face.shape[0], self.smpl.face.shape[1])
-
-        # texture: B  9, 13776, 1, 3 --> 9B 13776, 1, 3
-        batch_textures=  textures.view(rend_dim*batch_size, textures.shape[2], textures.shape[3], textures.shape[4]) # [11
-        batch_textures = batch_textures.unsqueeze(2)
-        # Joint: B J 3 ---> 9B j 3
-        batch_proj_joints = torch.repeat_interleave(joint_proj, repeats=rend_dim, dim=0)
-
-        #batch_textures = TexturesAtlas(atlas=batch_textures)
-        silhouette, joint_proj = self.camera_screen(
-            batch_vertices, #mesh_cam,                                                                                       # should be 9B X 6890 X 3
-            batch_smpl_faces, #torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1),             # should be 9B X 
-            batch_proj_joints, #joint_proj
-            textures=batch_textures
-            )
-        
-        joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
-
-        if cfg.debug:
-
-            vis_ind = -1
-            start_index = rend_dim * vis_ind
-
-            ktp_gt_debug = targets['joint_img'][vis_ind,...].cpu().numpy()
-            kpt_pred_debug = joint_proj[start_index,...].detach().cpu().numpy()
-
-            image_debug = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
-            mask_debug = np.repeat(np.ascontiguousarray(targets['mask_gt'][vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8), 3, axis=2)
-            grph_debug = np.ascontiguousarray(targets['grph_raw'][vis_ind, ...].cpu().numpy(), dtype=np.uint8)
-            grph_dsr_c_label_debug = (10 * targets['grph_dsr_c_label'][vis_ind, ...].cpu().numpy()).astype('uint8')
-            grph_dsr_mc_label_debug = (255 * targets['grph_dsr_mc_label'][vis_ind, ...].cpu().numpy()).astype('uint8')
-            grph_dsr_mc_dist_debug = (targets['grph_dsr_mc_dist_mat'][vis_ind, ...].cpu().numpy()).astype('uint8')
-
-            rendered = torch.multiply(
-                body_img[vis_ind,...].permute([1,2,0]), 
-                1 - silhouette[start_index, :, :, 3].unsqueeze(-1)) + \
-            silhouette[start_index, :, :, 3].unsqueeze(-1)
-            rendered = np.ascontiguousarray(rendered.detach().cpu().numpy() * 255, dtype=np.uint8)
-
-            
-            fig, axs = plt.subplots(3, 7)
-            axs[0, 0].imshow(image_debug)
-            axs[0, 1].imshow(mask_debug)
-            axs[0, 2].imshow(grph_debug)
-            axs[0, 3].imshow(grph_dsr_c_label_debug)
-            axs[0, 4].imshow(grph_dsr_mc_label_debug)
-            axs[0, 5].imshow(grph_dsr_mc_dist_debug)
-            axs[0, 6].imshow(rendered)
-            
-            img_kpt_gt           = vis_keypoints(image_debug, ktp_gt_debug.astype(np.int32))
-            mask_kpt_gt          = vis_keypoints(mask_debug, ktp_gt_debug.astype(np.int32))
-            grph_kpt_gt          = vis_keypoints(grph_debug, ktp_gt_debug.astype(np.int32))
-            c_label_kpt_gt       = vis_keypoints(grph_dsr_c_label_debug, ktp_gt_debug.astype(np.int32))
-            mc_label_kpt_gt      = vis_keypoints(grph_dsr_mc_label_debug, ktp_gt_debug.astype(np.int32))
-            mc_dist_kpt_gt       = vis_keypoints(grph_dsr_mc_dist_debug, ktp_gt_debug.astype(np.int32))
-            render_kpt_gt        = vis_keypoints(rendered, ktp_gt_debug.astype(np.int32))
-
-            axs[1, 0].imshow(img_kpt_gt)
-            axs[1, 1].imshow(mask_kpt_gt)
-            axs[1, 2].imshow(grph_kpt_gt)
-            axs[1, 3].imshow(c_label_kpt_gt)
-            axs[1, 4].imshow(mc_label_kpt_gt)
-            axs[1, 5].imshow(mc_dist_kpt_gt)
-            axs[1, 6].imshow(render_kpt_gt)
-
-            img_kpt_pred           = vis_keypoints(image_debug, kpt_pred_debug.astype(np.int32))
-            mask_kpt_pred          = vis_keypoints(mask_debug, kpt_pred_debug.astype(np.int32))
-            grph_kpt_pred          = vis_keypoints(grph_debug, kpt_pred_debug.astype(np.int32))
-            c_label_kpt_pred       = vis_keypoints(grph_dsr_c_label_debug, kpt_pred_debug.astype(np.int32))
-            mc_label_kpt_pred      = vis_keypoints(grph_dsr_mc_label_debug, kpt_pred_debug.astype(np.int32))
-            mc_dist_kpt_pred       = vis_keypoints(grph_dsr_mc_dist_debug, kpt_pred_debug.astype(np.int32))
-            render_kpt_pred        = vis_keypoints(rendered, kpt_pred_debug.astype(np.int32))
-
-            axs[2, 0].imshow(img_kpt_pred)
-            axs[2, 1].imshow(mask_kpt_pred)
-            axs[2, 2].imshow(grph_kpt_pred)
-            axs[2, 3].imshow(c_label_kpt_pred)
-            axs[2, 4].imshow(mc_label_kpt_pred)
-            axs[2, 5].imshow(mc_dist_kpt_pred)
-            axs[2, 6].imshow(render_kpt_pred)
-            
-            fig.set_figheight(15)
-            fig.set_figwidth(30)
-            fig.subplots_adjust(wspace=0.2, hspace=0.2)
-            plt.show()
-
-
-
-
-                
-
-
-            
         if mode == 'test' and 'smplx_pose' in targets:
             mesh_pseudo_gt = self.generate_mesh_gt(targets, mode)
 
         if mode == 'train':
+
+            targets['joint_img'][:, :, 0]   = targets['joint_img'][:, :, 0] / cfg.input_img_shape[1] * cfg.input_body_shape[1]  # # input shape to mesh shape
+            targets['joint_img'][:, :, 1]   = targets['joint_img'][:, :, 1] / cfg.input_img_shape[0] * cfg.input_body_shape[0]  # input shape to mesh shape
+            targets['grph_dsr_mc_label']    = F.interpolate(targets['grph_dsr_mc_label']    .permute([0, 3, 1, 2]), cfg.input_body_shape).permute([0, 2, 3, 1])  # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+            targets['grph_dsr_mc_dist_mat'] = F.interpolate(targets['grph_dsr_mc_dist_mat'] .permute([0, 3, 1, 2]), cfg.input_body_shape).permute([0, 2, 3, 1])  # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+            targets['grph_dsr_c_label']     = F.interpolate(targets['grph_dsr_c_label']     .unsqueeze(1),          cfg.input_body_shape).permute([0, 2, 3, 1])  # [32 x 512 x 384]
+            targets['mask_gt']              = F.interpolate(targets['mask_gt'],                                     cfg.input_body_shape)  # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+            targets['grph_raw']             = F.interpolate(targets['grph_raw']             .permute([0, 3, 1, 2]), cfg.input_body_shape).permute([0, 2, 3, 1])  # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+            # targets['grph_gt']              = F.interpolate(targets['grph_gt']             .permute([0,3,1,2]), cfg.input_body_shape) # [32 x 512 x 384 x 3] -->  [32 x 3 x 512 x 384]
+            textures = targets['smpl_textures_gt']
+            textures = textures.unsqueeze(3)
+            rend_dim = textures.shape[1]
+            # B 6890 3 - > 9B 6890 3
+            batch_vertices = torch.repeat_interleave(mesh_cam, repeats=rend_dim, dim=0) # [1152, 6890, 3]
+
+            # 1 X 13376 X 3 --> 9b X 13376 X 3
+            batch_smpl_faces = torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).expand(
+                rend_dim*batch_size, self.smpl.face.shape[0], self.smpl.face.shape[1])
+
+            # texture: B  9, 13776, 1, 3 --> 9B 13776, 1, 3
+            batch_textures=  textures.view(rend_dim*batch_size, textures.shape[2], textures.shape[3], textures.shape[4]) # [11
+            batch_textures = batch_textures.unsqueeze(2)
+            # Joint: B J 3 ---> 9B j 3
+            batch_proj_joints = torch.repeat_interleave(joint_proj, repeats=rend_dim, dim=0)
+
+            #batch_textures = TexturesAtlas(atlas=batch_textures)
+            silhouette, joint_proj = self.camera_screen(
+                batch_vertices, #mesh_cam,                                                                                       # should be 9B X 6890 X 3
+                batch_smpl_faces, #torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).repeat(batch_size,1,1),             # should be 9B X
+                batch_proj_joints, #joint_proj
+                textures=batch_textures
+                )
+
+            joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
+
+            if cfg.debug:
+
+                vis_ind = -1
+                start_index = rend_dim * vis_ind
+
+                ktp_gt_debug = targets['joint_img'][vis_ind,...].cpu().numpy()
+                kpt_pred_debug = joint_proj[start_index,...].detach().cpu().numpy()
+
+                image_debug = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
+                mask_debug = np.repeat(np.ascontiguousarray(targets['mask_gt'][vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8), 3, axis=2)
+                grph_debug = np.ascontiguousarray(targets['grph_raw'][vis_ind, ...].cpu().numpy(), dtype=np.uint8)
+                grph_dsr_c_label_debug = (10 * targets['grph_dsr_c_label'][vis_ind, ...].cpu().numpy()).astype('uint8')
+                grph_dsr_mc_label_debug = (255 * targets['grph_dsr_mc_label'][vis_ind, ...].cpu().numpy()).astype('uint8')
+                grph_dsr_mc_dist_debug = (targets['grph_dsr_mc_dist_mat'][vis_ind, ...].cpu().numpy()).astype('uint8')
+
+                rendered = torch.multiply(
+                    body_img[vis_ind,...].permute([1,2,0]),
+                    1 - silhouette[start_index, :, :, 3].unsqueeze(-1)) + \
+                silhouette[start_index, :, :, 3].unsqueeze(-1)
+                rendered = np.ascontiguousarray(rendered.detach().cpu().numpy() * 255, dtype=np.uint8)
+
+
+                fig, axs = plt.subplots(3, 7)
+                axs[0, 0].imshow(image_debug)
+                axs[0, 1].imshow(mask_debug)
+                axs[0, 2].imshow(grph_debug)
+                axs[0, 3].imshow(grph_dsr_c_label_debug)
+                axs[0, 4].imshow(grph_dsr_mc_label_debug)
+                axs[0, 5].imshow(grph_dsr_mc_dist_debug)
+                axs[0, 6].imshow(rendered)
+
+                img_kpt_gt           = vis_keypoints(image_debug, ktp_gt_debug.astype(np.int32))
+                mask_kpt_gt          = vis_keypoints(mask_debug, ktp_gt_debug.astype(np.int32))
+                grph_kpt_gt          = vis_keypoints(grph_debug, ktp_gt_debug.astype(np.int32))
+                c_label_kpt_gt       = vis_keypoints(grph_dsr_c_label_debug, ktp_gt_debug.astype(np.int32))
+                mc_label_kpt_gt      = vis_keypoints(grph_dsr_mc_label_debug, ktp_gt_debug.astype(np.int32))
+                mc_dist_kpt_gt       = vis_keypoints(grph_dsr_mc_dist_debug, ktp_gt_debug.astype(np.int32))
+                render_kpt_gt        = vis_keypoints(rendered, ktp_gt_debug.astype(np.int32))
+
+                axs[1, 0].imshow(img_kpt_gt)
+                axs[1, 1].imshow(mask_kpt_gt)
+                axs[1, 2].imshow(grph_kpt_gt)
+                axs[1, 3].imshow(c_label_kpt_gt)
+                axs[1, 4].imshow(mc_label_kpt_gt)
+                axs[1, 5].imshow(mc_dist_kpt_gt)
+                axs[1, 6].imshow(render_kpt_gt)
+
+                img_kpt_pred           = vis_keypoints(image_debug, kpt_pred_debug.astype(np.int32))
+                mask_kpt_pred          = vis_keypoints(mask_debug, kpt_pred_debug.astype(np.int32))
+                grph_kpt_pred          = vis_keypoints(grph_debug, kpt_pred_debug.astype(np.int32))
+                c_label_kpt_pred       = vis_keypoints(grph_dsr_c_label_debug, kpt_pred_debug.astype(np.int32))
+                mc_label_kpt_pred      = vis_keypoints(grph_dsr_mc_label_debug, kpt_pred_debug.astype(np.int32))
+                mc_dist_kpt_pred       = vis_keypoints(grph_dsr_mc_dist_debug, kpt_pred_debug.astype(np.int32))
+                render_kpt_pred        = vis_keypoints(rendered, kpt_pred_debug.astype(np.int32))
+
+                axs[2, 0].imshow(img_kpt_pred)
+                axs[2, 1].imshow(mask_kpt_pred)
+                axs[2, 2].imshow(grph_kpt_pred)
+                axs[2, 3].imshow(c_label_kpt_pred)
+                axs[2, 4].imshow(mc_label_kpt_pred)
+                axs[2, 5].imshow(mc_dist_kpt_pred)
+                axs[2, 6].imshow(render_kpt_pred)
+
+                fig.set_figheight(15)
+                fig.set_figwidth(30)
+                fig.subplots_adjust(wspace=0.2, hspace=0.2)
+                plt.show()
+
             loss = {}
+
+
 
             #joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
             joint_proj = joint_proj[::rend_dim]            
@@ -608,6 +600,30 @@ class Model(nn.Module):
             #                                          smpl_x.reduce_joint_set(meta_info['smplx_joint_trunc']))
             return loss
         else:
+
+            #textures = targets['smpl_textures_gt']
+            #textures = textures.unsqueeze(3)
+            #rend_dim = textures.shape[1]
+            ## B 6890 3 - > 9B 6890 3
+            #batch_vertices = torch.repeat_interleave(mesh_cam, repeats=rend_dim, dim=0)  # [1152, 6890, 3]
+
+            # 1 X 13376 X 3 --> 9b X 13376 X 3
+            batch_smpl_faces = torch.from_numpy(self.smpl.face.astype('int')).unsqueeze(0).expand(
+                batch_size, self.smpl.face.shape[0], self.smpl.face.shape[1])
+
+
+            #batch_proj_joints = torch.repeat_interleave(jont_proj, repeats=rend_dim, dim=0)
+
+            # batch_textures = TexturesAtlas(atlas=batch_textures)
+            silhouette, joint_proj = self.camera_screen(
+                mesh_cam,
+                batch_smpl_faces,
+                joint_proj,  # joint_proj
+                textures=None
+            )
+
+            #joint_proj = joint_proj[:, meta_info['joint_idx'][0, :], :]
+
             # change hand output joint_img according to hand bbox
             for part_name, bbox in (('lhand', lhand_bbox), ('rhand', rhand_bbox)):
                 joint_img[:, self.smpl.pos_joint_part[part_name], 0] *= (
@@ -702,7 +718,7 @@ def get_model(smpl, mode):
         body_position_net.apply(init_weights)
         body_rotation_net.apply(init_weights)
         box_net.apply(init_weights)
-        encoder_pretrained_model_path = torch.load(cfg.encoder_pretrained_model_path)['state_dict']
+        encoder_pretrained_model_path = torch.load(cfg.encoder_pretrained_model_path, weights_only=False)['state_dict']
         vit.load_state_dict(encoder_pretrained_model_path, strict=False)
         print(f"Initialize backbone from {cfg.encoder_pretrained_model_path}")
 

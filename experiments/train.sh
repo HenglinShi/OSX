@@ -14,11 +14,11 @@ export PYTHONPATH=/home/x_hensh/.local/lib/python3.10/site-packages:$PPYTHONPATH
 python ../main/train.py \
             --devices gpu:0 \
             --lr 1e-4 \
-            --exp_name output/train_kpt1dsr1_p3drender_2/ \
+            --exp_name output/train_kpt1dsr1_p3drender_fixed2/ \
             --end_epoch 140 \
             --pretrained_model_path ../pretrained_models/osx_l.pth.tar \
             --ima_benchmark \
-            --train_batch_size 16 \
+            --train_batch_size 8 \
             --continue \
             --decoder_setting normal \
             --model_type smil_h \
