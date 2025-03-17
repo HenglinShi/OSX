@@ -1,8 +1,9 @@
 import numpy as np
 
-GRPH_LABEL = ['background', 'hat', 'hair', 'glove', 'sunglasses', 'upperclothes', 'dress', 'coat', 'socks',
-              'pants', 'jumpsuits', 'scarf', 'skirt', 'face', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg',
-              'leftShoe', 'rightShoe']
+GRPH_LABEL = ['background', 'hat', 'hair', 'glove', 'sunglasses',
+              'upperclothes', 'dress', 'coat', 'socks', 'pants',
+              'jumpsuits', 'scarf', 'skirt', 'face', 'leftArm',
+              'rightArm', 'leftLeg', 'rightLeg', 'leftShoe', 'rightShoe']
 GRPH_COLOR_MAP = {'background': [0,0,0], 'hat': [128,0,0], 'hair': [255,0,0], 'glove': [0,85,0], 
                   'sunglasses': [170,0,51], 'upperclothes': [255,85,0], 'dress': [0,0,85], 'coat': [0,119,221], 
                   'socks': [85,85,0], 'pants': [0,85,85], 'jumpsuits': [85,51,0], 'scarf': [52,86,128], 
@@ -12,9 +13,19 @@ GRPH_COLOR_MAP = {'background': [0,0,0], 'hat': [128,0,0], 'hair': [255,0,0], 'g
 GRPH_COLOR_MAP_NORM = {k: np.array(v, dtype=np.float32)/255. for k, v in GRPH_COLOR_MAP.items()}
 GRPH_LABEL_IDX = {v: k for k, v in enumerate(GRPH_LABEL)}
 
-GRPH_LABEL_MERGE = ['background', 'head', 'upperclothes', 'pants', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg']
-GRPH_MERGE_MAP = {'0': [0], '1': [1, 2, 4, 11, 13], '2': [3, 5, 6, 7, 10], '3': [8, 9, 12], '4': [14],
-                  '5': [15], '6': [16, 18], '7': [17, 19]}
+GRPH_LABEL_MERGE = ['background', 'head', 'upperclothes', 'pants',
+                    #'leftArm', 'rightArm',
+                    #'leftLeg', 'rightLeg'
+                    ]
+GRPH_MERGE_MAP = {'0': [0],                     # background:   [background]
+                  '1': [1, 2, 4, 11],       # head:         [hat,       hair,           sunglasses, scarf,  face ]
+                  '2': [3, 5, 6, 7, 10],        # upperclothes: [glove,     upperclothes,   dress,      coat,   jumpsuits]
+                  '3': [8, 9, 12],              # pants:        [socks,     pants,          skirt
+                  #'4': [14],                    # leftArm:      [leftArm]
+                  #'5': [15],                    # rightArm:     [rightArm]
+                  #'6': [16, 18],                # leftLeg:      [leftLeg,   leftShoe
+                  #'7': [17, 19]
+                  }                # rightLeg:     [rightLeg,  rightShoe
 
 CLOTHING_LABEL_MERGE = ['background', 'skin', 'upperclothes', 'pants']
 CLOTHING_MERGE_MAP = {'0': [0], '1': [1,2,3,4,8,11,13,14,15,16,17,18,19], '2': [5, 6, 7, 10], '3': [9, 12]}
@@ -30,7 +41,7 @@ GRPH_LABEL_TO_KEYPOINTS = {'leftShoe': [14, 19, 20, 21, 30], 'rightShoe': [11, 2
 
 RP_TEXTURE_PROB = '../dataset/IMA/semantic_prior.npy'
 
-SELECTED_GRPH_LABELS = ['leftShoe', 'rightShoe', 'leftArm', 'rightArm', 'face']
+SELECTED_GRPH_LABELS = ['leftLeg', 'rightLeg', 'leftArm', 'rightArm', 'face']
 
 DSR_MC_LABELS = SELECTED_GRPH_LABELS
 DSR_C_LABELS = GRPH_LABEL_MERGE

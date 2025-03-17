@@ -25,8 +25,33 @@ from common.utils.vis import vis_keypoints, vis_mesh, save_obj, render_mesh, vis
 
 class Model(nn.Module):
     def __init__(self, encoder, body_position_net, body_rotation_net, box_net, hand_position_net, hand_roi_net, hand_decoder,
-                 hand_rotation_net, face_position_net, face_roi_net, face_decoder, face_regressor, smpl):
+                 hand_rotation_net, face_position_net, face_roi_net, face_decoder, face_regressor, smpl,
+                 img_kpt_loss_weight=1.0,
+                 mask_loss_weight=5.0,
+                 dsr_mc_loss_weight=1.0,
+                 dsr_c_loss_weight=1.0,
+                 silhouette_loss_type=None):
         super(Model, self).__init__()
+
+
+        self.img_kpt_loss_weight = cfg.img_kpt_loss_weight
+        self.mask_loss_weight = cfg.mask_loss_weight
+        self.dsr_mc_loss_weight = cfg.dsr_mc_loss_weight
+        self.dsr_c_loss_weight = cfg.dsr_c_loss_weight
+        self.silhouette_loss_type = cfg.silhouette_loss_type
+
+        logger.info(f"img_kpt_loss_weight: {self.img_kpt_loss_weight}")
+        logger.info(f"silhouette_loss_type: {self.silhouette_loss_type}")
+        if self.silhouette_loss_type is None:
+            pass
+        elif self.silhouette_loss_type == 'maskIoU':
+            logger.info(f"mask_loss_weight: {self.mask_loss_weight}")
+        elif self.silhouette_loss_type == 'dsr':
+            logger.info(f"dsr_mc_loss_weight: {self.dsr_mc_loss_weight}")
+            logger.info(f"dsr_c_loss_weight: {self.dsr_c_loss_weight}")
+
+
+
         # body
         self.encoder = encoder
         self.body_position_net = body_position_net
@@ -436,8 +461,6 @@ class Model(nn.Module):
         # final output
         joint_proj, joint_cam, mesh_cam, regoutput, joint_cam_tr = self.get_coord_hshi(root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode)
         #pdb.set_trace()
-        #joint_proj, joint_cam, mesh_cam, regoutput = self.get_coord_hshi(root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose, shape, expr, cam_trans, mode)
-        #pose = torch.cat((root_pose, body_pose, lhand_pose, rhand_pose, jaw_pose), 1)
         joint_img = torch.cat((body_joint_img, lhand_joint_img, rhand_joint_img), 1)
 
 
@@ -479,14 +502,14 @@ class Model(nn.Module):
                 )
 
             joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
-
+            joint_proj = joint_proj[::rend_dim]
             if cfg.debug:
 
                 vis_ind = -1
                 start_index = rend_dim * vis_ind
 
                 ktp_gt_debug = targets['joint_img'][vis_ind,...].cpu().numpy()
-                kpt_pred_debug = joint_proj[start_index,...].detach().cpu().numpy()
+                kpt_pred_debug = joint_proj[vis_ind,...].detach().cpu().numpy()
 
                 image_debug = np.ascontiguousarray(body_img[vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8)
                 mask_debug = np.repeat(np.ascontiguousarray(targets['mask_gt'][vis_ind, ...].permute([1,2,0]).detach().cpu().numpy() * 255, dtype=np.uint8), 3, axis=2)
@@ -548,56 +571,34 @@ class Model(nn.Module):
                 fig.subplots_adjust(wspace=0.2, hspace=0.2)
                 plt.show()
 
+
+
             loss = {}
-
-
-
-            #joint_proj = joint_proj[:, meta_info['joint_idx'][0,:], :]
-            joint_proj = joint_proj[::rend_dim]            
-
-            loss['joint_proj'] = self.coord_loss(joint_proj, 
-                                                 targets['joint_img'], 
+            keypoint_loss = self.coord_loss(joint_proj,
+                                                 targets['joint_img'],
                                                  meta_info['joint_trunc'])
-            #mask_gt = F.interpolate(targets['mask_gt'], cfg.input_body_shape, mode='nearest')
-            
-            #loss['mask'] = self.mask_loss(silhouette[...,3], mask_gt.squeeze(1))
-            #loss['mask'] = self.mask_iou_loss(silhouette[...,3], mask_gt.squeeze(1))
+            loss['joint_proj'] = keypoint_loss.mean() * self.mask_loss_weight
+            if self.silhouette_loss_type is None:
+                pass
+            elif self.silhouette_loss_type == 'maskIoU':
+                silhouette = silhouette[::rend_dim]
+                loss['mask'] = self.mask_iou_loss(silhouette[..., 3], targets['mask_gt'] .squeeze(1)).mean() * self.mask_loss_weight
+            elif self.silhouette_loss_type == 'dsr':
+                loss_dsr_mc, loss_dsr_c = self.sr_losses(
+                    gt_batch=inputs,
+                    render=silhouette,
+                    dsr_mc_dist_mat     = targets['grph_dsr_mc_dist_mat'],  # minimal-clothing        b 224 224 3
+                    dsr_c_img_label     = targets['grph_dsr_c_label'],  # clothing                b 224 224
+                    dsr_mc_img_label    = targets['grph_dsr_mc_label'], # minimal-clothing        b 224 224 3
+                    valid_labels_dsr_mc = targets['valid_labels_dsr_mc'],                      # list of lenth b
+                    valid_labels_dsr_c  = targets['valid_labels_dsr_c'],                       # list of lenth b
+                    dsr_c_class_weight  = targets['dsr_c_class_weight'],                       # B x 8
+                )
+
+                loss['loss_dsr_c'] = loss_dsr_c.mean() * self.dsr_c_loss_weight
+                loss['loss_dsr_mc'] = loss_dsr_mc.mean() * self.dsr_mc_loss_weight
 
 
-
-            # DSR LOSS
-            # 1. get render result
-            #render_out = silhouette[...,3]
-            
-            loss_dsr_mc, loss_dsr_c = self.sr_losses(
-                gt_batch=inputs,
-                render=silhouette,
-                dsr_mc_dist_mat     = targets['grph_dsr_mc_dist_mat'],  # minimal-clothing        b 224 224 3
-                dsr_c_img_label     = targets['grph_dsr_c_label'],  # clothing                b 224 224
-                dsr_mc_img_label    = targets['grph_dsr_mc_label'], # minimal-clothing        b 224 224 3
-                valid_labels_dsr_mc = targets['valid_labels_dsr_mc'],                      # list of lenth b
-                valid_labels_dsr_c  = targets['valid_labels_dsr_c'],                       # list of lenth b
-                dsr_c_class_weight  = targets['dsr_c_class_weight'],                       # B x 8
-            )
-
-            loss['loss_dsr_c'] = loss_dsr_c
-            loss['loss_dsr_mc'] = loss_dsr_mc
-
-
-            #print (loss['joint_proj'])
-            #loss['joint_img'] = self.coord_loss(joint_img, 
-            #                                    self.smpl.reduce_joint_set(targets['joint_img']),
-            #                                    self.smpl.reduce_joint_set(meta_info['joint_trunc']), 
-            #                                    meta_info['is_3D'])
-            
-            #loss['joint_img_face'] = self.coord_loss(face_joint_img, 
-            #                                         targets['joint_img'][:, smpl_x.joint_part['face']],
-            #                                         meta_info['joint_trunc'][:, smpl_x.joint_part['face']], 
-            #                                         meta_info['is_3D'])
-            
-            #loss['smplx_joint_img'] = self.coord_loss(joint_img, 
-            #                                          smpl_x.reduce_joint_set(targets['smplx_joint_img']),
-            #                                          smpl_x.reduce_joint_set(meta_info['smplx_joint_trunc']))
             return loss
         else:
 

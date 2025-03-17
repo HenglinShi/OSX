@@ -9,12 +9,13 @@
 module load PyTorch
 export LD_LIBRARY_PATH=/software/sse/manual/PyTorch/2.3.0/python-3.10/envs/pytorch_2.3.0/lib/:$LD_LIBRARY_PATH
 export PYTHONPATH=/home/x_hensh/.local/lib/python3.10/site-packages:$PPYTHONPATH
-
+echo $1 $2
+echo $3 $4
 
 python ../main/train.py \
             --devices gpu:0 \
             --lr 1e-4 \
-            --exp_name output/train_kpt1dsr1_p3drender_fixed2/ \
+            --exp_name output/train_kpt1dsr1_p3drender_2/ \
             --end_epoch 140 \
             --pretrained_model_path ../pretrained_models/osx_l.pth.tar \
             --ima_benchmark \
@@ -22,4 +23,6 @@ python ../main/train.py \
             --continue \
             --decoder_setting normal \
             --model_type smil_h \
-            --continue 
+            --continue \
+            $1 $2 \
+            $3 $4 \

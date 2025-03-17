@@ -23,6 +23,12 @@ def parse_args():
     parser.add_argument('--pretrained_model_path', type=str, default='../pretrained_models/osx_l.pth.tar')
     parser.add_argument('--model_type', type=str, default='smil_h')
     parser.add_argument('--debug', type=bool, default=False)
+    parser.add_argument('--img_kpt_loss_weight', type=float, default=1.0)
+    parser.add_argument('--mask_loss_weight', type=float, default=1.0)
+    parser.add_argument('--dsr_mc_loss_weight', type=float, default=1.0)
+    parser.add_argument('--dsr_c_loss_weight', type=float, default=1.0)
+    parser.add_argument('--silhouette_loss_type', type=str, default='dsr')
+
     args = parser.parse_args()
 
     if not args.devices:
@@ -78,7 +84,12 @@ def main():
                             ubody_benchmark=args.ubody_benchmark,
                             ima_benchmark=args.ima_benchmark,
                             model_type=model_type,
-                            debug=args.debug
+                            debug=args.debug,
+                            img_kpt_loss_weight=args.img_kpt_loss_weight,
+                            mask_loss_weight=args.mask_loss_weight,
+                            dsr_mc_loss_weight=args.dsr_mc_loss_weight,
+                            dsr_c_loss_weight=args.dsr_c_loss_weight,
+                            silhouette_loss_type=args.silhouette_loss_type
                             )
     if args.devices == 'gpu':
         cudnn.benchmark = True
@@ -102,7 +113,7 @@ def main():
             # forward
             trainer.optimizer.zero_grad()
             loss = trainer.model(inputs, targets, meta_info, 'train')
-            loss = {k: loss[k].mean() for k in loss}
+            #loss = {k: loss[k].mean() for k in loss}
             #pdb.set_trace()
             #loss['mask'] = loss['mask'] * 20
 

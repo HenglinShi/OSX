@@ -20,12 +20,15 @@ class base_renderer():
 
         self.R = torch.tensor([[-1, 0, 0],
                                [0, -1, 0],
-                               [0, 0, 1]]).repeat(1, 1, 1).to(device)
+                               [0, 0, 1]]).repeat(1, 1, 1)#.to(device)
         if T is not None:
-            self.T = T.to(device)
+            self.T = T#.to(device)
         else:
-            self.T = torch.zeros(3).repeat(1, 1).to(device)
+            self.T = torch.zeros(3).repeat(1, 1)#.to(device)
 
+        if device == 'cuda':
+            self.R = self.R.cuda()
+            self.T = self.T.cuda()
         self.camera = self.init_camera(focal, principal_point)
         #self.silhouette_renderer = self.init_silhouette_renderer()
         self.renderer = self.init_renderer()
